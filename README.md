@@ -189,6 +189,8 @@ cd frontend
 npm test
 ```
 
+Linting: `pip install -r requirements-dev.txt` then `ruff check .` in `backend/`, and `npm run lint` (oxlint) in `frontend/`.
+
 ### Adding more shadcn/ui components
 
 The project is set up for the shadcn CLI, e.g. `npx shadcn@latest add dropdown-menu`.
@@ -264,6 +266,9 @@ today, the limits the frontend should use and the example links. Never returns A
 
 ## Performance
 
+Auto mode also moves busy or slow models to the back of the line for two minutes, so the next
+summary goes straight to a model that's answering.
+
 Measured on the production build served by Django:
 
 | | Before | After |
@@ -332,7 +337,9 @@ The most useful ones:
 | `SUMMARIES_PER_DAY` | `0` (unlimited) | per visitor IP, resets at midnight UTC. `3` on Render |
 | `THROTTLE_SUMMARIZE` | `10/min` | burst limit per IP |
 | `SCRAPER_MAX_TEXT_CHARS` | `15000` | how much page text is sent to the AI |
-| `SCRAPER_TOTAL_TIME_LIMIT` / `AI_TOTAL_TIME_LIMIT` | `30` / `75` | seconds |
+| `SCRAPER_TOTAL_TIME_LIMIT` / `AI_TOTAL_TIME_LIMIT` | `30` / `90` | seconds |
+| `AI_TIMEOUT` | `20` | seconds one model gets before Auto moves on |
+| `AI_MODEL_COOLDOWN_SECONDS` | `120` | a busy or slow model is tried last for this long |
 | `AI_PROMPT_FILE` | `api/prompts/summary.txt` | the instructions given to the AI |
 | `EXAMPLE_LINKS` | 3 links | "label\|url" pairs separated by `;` |
 | `DJANGO_DEBUG` | `False` | `True` for local development |

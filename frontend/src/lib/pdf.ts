@@ -43,13 +43,13 @@ export function parseSummary(markdown: string): Block[] {
 }
 
 const REPLACEMENTS: [RegExp, string][] = [
-  [/[‘’‚′]/g, "'"],
-  [/[“”„″]/g, '"'],
-  [/[–—−]/g, "-"],
-  [/…/g, "..."],
-  [/[•·∙]/g, "-"],
-  [/ /g, " "],
-  [/[​‌‍﻿]/g, ""],
+  [/[\u2018\u2019\u201A\u2032]/g, "'"],
+  [/[\u201C\u201D\u201E\u2033]/g, '"'],
+  [/[\u2013\u2014\u2212]/g, "-"],
+  [/\u2026/g, "..."],
+  [/[\u2022\u00B7\u2219]/g, "-"],
+  [/\u00A0/g, " "],
+  [/\u200B|\u200C|\u200D|\uFEFF/g, ""],
 ];
 
 export function plain(text: string) {
@@ -57,7 +57,7 @@ export function plain(text: string) {
 }
 
 export function fitsBuiltInFont(text: string) {
-  return /^[\u0000-ÿ]*$/.test(plain(text));
+  return [...plain(text)].every((char) => char.charCodeAt(0) <= 0xff);
 }
 
 export function pdfFileName(title: string) {

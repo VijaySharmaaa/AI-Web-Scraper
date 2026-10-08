@@ -124,10 +124,14 @@ describe("model picker", () => {
     expect(screen.getByRole("option", { name: "llama-3.3-70b-versatile" })).not.toHaveAttribute("aria-disabled");
   });
 
-  it("goes back to Auto when a saved model isn't offered anymore", async () => {
+  it("uses Auto while a saved model isn't offered, without forgetting the choice", async () => {
     localStorage.setItem("ai-model", "old-model-that-was-removed");
+    const user = userEvent.setup();
     renderApp();
     await waitFor(() => expect(screen.getByRole("combobox", { name: "AI model" })).toHaveTextContent("Auto"));
-    expect(localStorage.getItem("ai-model")).toBeNull();
+
+    await submit(user);
+    expect(sentBody().model).toBeUndefined();
+    expect(localStorage.getItem("ai-model")).toBe("old-model-that-was-removed");
   });
 });

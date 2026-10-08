@@ -177,6 +177,7 @@ describe("App", () => {
       { type: "step", step: "fetching" },
       { type: "step", step: "reading", title: RESULT.title },
       { type: "model", provider: "Google Gemini", model: "gem-a", label: "Gemini 3.8 Flash" },
+      { type: "model_switch", from_label: "Gemini 3.9 Flash", reason: "too slow", provider: "Google Gemini", model: "gem-x", label: "Gemini 3.8 Flash" },
       { type: "model_switch", from_label: "Gemini 3.8 Flash", reason: "busy", provider: "Google Gemini", model: "gem-b", label: "Gemini 3.7 Flash" },
     ];
     mockFetch(() => {
@@ -199,6 +200,7 @@ describe("App", () => {
 
     expect(await screen.findByText("Writing the summary with Gemini 3.7 Flash")).toBeInTheDocument();
     expect(screen.getByText("Gemini 3.8 Flash was busy, now using Gemini 3.7 Flash")).toBeInTheDocument();
+    expect(screen.queryByText(/Gemini 3.9 Flash was too slow/)).not.toBeInTheDocument();
 
     finish();
     expect(await screen.findByRole("heading", { name: RESULT.title })).toBeInTheDocument();

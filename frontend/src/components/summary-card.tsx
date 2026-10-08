@@ -1,5 +1,5 @@
 import { useState } from "react";
-import Markdown from "react-markdown";
+import Markdown, { type Components } from "react-markdown";
 import { toast } from "sonner";
 import { Bot, Check, Clock, Copy, Download, ExternalLink, FileText, Info, Plus, Timer } from "lucide-react";
 
@@ -20,6 +20,15 @@ interface Props {
   onNew: () => void;
   fromHistory?: boolean;
 }
+
+const MARKDOWN_COMPONENTS: Components = {
+  a: ({ href, children }) => (
+    <a href={href} target="_blank" rel="noopener noreferrer nofollow">
+      {children}
+    </a>
+  ),
+  img: () => null,
+};
 
 function toPlainText(result: SummaryResponse) {
   const model = result.model_label || result.model;
@@ -85,18 +94,7 @@ export function SummaryCard({ result, onNew, fromHistory }: Props) {
 
       <CardContent className="py-6">
         <div className="prose-summary">
-          <Markdown
-            components={{
-              a: ({ href, children }) => (
-                <a href={href} target="_blank" rel="noopener noreferrer nofollow">
-                  {children}
-                </a>
-              ),
-              img: () => null,
-            }}
-          >
-            {summary}
-          </Markdown>
+          <Markdown components={MARKDOWN_COMPONENTS}>{summary}</Markdown>
         </div>
 
         {result.truncated && (

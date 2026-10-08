@@ -1,15 +1,13 @@
 import { useEffect, useState } from "react";
 
-export function useElapsed(running: boolean) {
-  const [elapsed, setElapsed] = useState(0);
+export function useElapsed() {
+  const [start] = useState(Date.now);
+  const [now, setNow] = useState(start);
 
   useEffect(() => {
-    setElapsed(0);
-    if (!running) return;
-    const started = Date.now();
-    const id = setInterval(() => setElapsed((Date.now() - started) / 1000), 100);
+    const id = setInterval(() => setNow(Date.now()), 100);
     return () => clearInterval(id);
-  }, [running]);
+  }, []);
 
-  return elapsed;
+  return (now - start) / 1000;
 }

@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 export interface LoadingProgress {
   step: "starting" | "fetching" | "reading" | "writing";
   modelLabel?: string;
-  switches: string[];
+  note?: string;
 }
 
 const ORDER: LoadingProgress["step"][] = ["fetching", "reading", "writing"];
@@ -38,7 +38,7 @@ function StepIcon({ state, icon: Icon }: { state: "done" | "active" | "waiting";
 }
 
 export function LoadingCard({ url, progress, onCancel }: { url: string; progress: LoadingProgress; onCancel: () => void }) {
-  const elapsed = useElapsed(true);
+  const elapsed = useElapsed();
   const current = Math.max(0, ORDER.indexOf(progress.step === "starting" ? "fetching" : progress.step));
 
   const steps = [
@@ -73,12 +73,11 @@ export function LoadingCard({ url, progress, onCancel }: { url: string; progress
                   <p className={cn(state === "waiting" && "text-muted-foreground", state === "active" && "font-medium")}>
                     {step.label}
                   </p>
-                  {i === 2 &&
-                    progress.switches.map((note) => (
-                      <p key={note} className="text-xs text-muted-foreground">
-                        {note}
-                      </p>
-                    ))}
+                  {i === 2 && progress.note && (
+                    <p key={progress.note} className="text-xs text-muted-foreground animate-in fade-in-0 duration-300">
+                      {progress.note}
+                    </p>
+                  )}
                 </div>
               </li>
             );

@@ -140,9 +140,9 @@ class UrlSafetyTests(SimpleTestCase):
         def handler(request):
             return httpx.Response(302, headers={"location": "http://internal.test/admin"})
 
-        with fake_dns({"example.com": PUBLIC_IP, "internal.test": "10.1.2.3"}), fake_site(handler):
-            with self.assertRaises(ScrapeError) as ctx:
-                scrape_page("https://example.com/")
+        dns = fake_dns({"example.com": PUBLIC_IP, "internal.test": "10.1.2.3"})
+        with dns, fake_site(handler), self.assertRaises(ScrapeError) as ctx:
+            scrape_page("https://example.com/")
         self.assertIn("private", str(ctx.exception.detail))
 
     def test_follows_normal_redirects(self):
@@ -159,9 +159,8 @@ class UrlSafetyTests(SimpleTestCase):
         def handler(request):
             return httpx.Response(302, headers={"location": "/again"})
 
-        with fake_dns({"example.com": PUBLIC_IP}), fake_site(handler):
-            with self.assertRaises(ScrapeError) as ctx:
-                scrape_page("https://example.com/")
+        with fake_dns({"example.com": PUBLIC_IP}), fake_site(handler), self.assertRaises(ScrapeError) as ctx:
+            scrape_page("https://example.com/")
         self.assertIn("keeps redirecting", str(ctx.exception.detail))
 
 
@@ -211,6 +210,9 @@ def groq_ok(text="From groq."):
 @patch.dict("os.environ", {"GEMINI_API_KEY": "g-key", "GROQ_API_KEY": "q-key"})
 @override_settings(GEMINI_CHECK_MODELS=False)
 class AIFallbackTests(SimpleTestCase):
+    def setUp(self):
+        cache.clear()
+
     def run_with(self, responses):
         calls = []
 
@@ -291,12 +293,18 @@ class AIFallbackTests(SimpleTestCase):
         self.assertEqual(steps[-1]["type"], "done")
 
     def test_stops_trying_when_out_of_time(self):
-        clock = iter([0, 0, 80, 80, 80, 80])
+        calls = {"n": 0}
 
-        with patch("api.services.ai.time.monotonic", side_effect=lambda: next(clock)), \
-                patch("api.services.ai.send", return_value=httpx.Response(500)) as mock_post:
-            with self.assertRaises(AIError):
-                ai.summarize(FAKE_PAGE)
+        def clock():
+            calls["n"] += 1
+            return 0 if calls["n"] <= 2 else 1000
+
+        with (
+            patch("api.services.ai.time.monotonic", side_effect=clock),
+            patch("api.services.ai.send", return_value=httpx.Response(500)) as mock_post,
+            self.assertRaises(AIError),
+        ):
+            ai.summarize(FAKE_PAGE)
         self.assertEqual(mock_post.call_count, 1)
 
     def test_preferred_model_goes_first(self):
@@ -326,6 +334,22 @@ class AIFallbackTests(SimpleTestCase):
             self.steps_with([httpx.Response(500)], preferred_model="gem-b")
         self.assertEqual(ctx.exception.error_code, "model_failed")
         self.assertIn("Try again later", str(ctx.exception.detail))
+
+    def test_overloaded_counts_as_busy(self):
+        steps, _ = self.steps_with([httpx.Response(503, text="high demand"), gemini_ok()])
+        self.assertEqual(steps[1]["reason"], "busy")
+
+    def test_chosen_model_overloaded_is_busy(self):
+        with self.assertRaises(AIError) as ctx:
+            self.steps_with([httpx.Response(503, text="high demand")], preferred_model="gem-a")
+        self.assertEqual(ctx.exception.error_code, "model_busy")
+
+    def test_busy_model_is_tried_last_next_time(self):
+        self.steps_with([httpx.Response(429), gemini_ok()])
+        _, calls = self.steps_with([gemini_ok()])
+        self.assertEqual(calls, ["gem-b"])
+        _, calls = self.steps_with([httpx.Response(500), httpx.Response(500), gemini_ok()])
+        self.assertEqual(calls, ["gem-b", "llama-a", "gem-a"])
 
     def test_summary_label_is_removed(self):
         label = ";".join(["TL", "DR"])
@@ -651,17 +675,21 @@ class GeminiModelCheckTests(SimpleTestCase):
         with patch("api.services.ai.send", return_value=self.models_response()):
             data = APIClient().get("/api/health/").json()
         self.assertEqual(data["hidden_models"], ["gemini-gone"])
-        self.assertIn(
-            {"provider": "Google Gemini", "model": "gemini-gone", "label": "Gemini Gone", "reason": "not available for this API key"},
-            data["unavailable_models"],
-        )
+        expected = {
+            "provider": "Google Gemini",
+            "model": "gemini-gone",
+            "label": "Gemini Gone",
+            "reason": "not available for this API key",
+        }
+        self.assertIn(expected, data["unavailable_models"])
 
     @override_settings(GROQ_MODELS=["llama-x"])
     def test_providers_without_a_key_are_listed_as_unavailable(self):
         with patch("api.services.ai.send", return_value=self.models_response()):
             data = APIClient().get("/api/health/").json()
         groq = [m for m in data["unavailable_models"] if m["provider"] == "Groq"]
-        self.assertEqual(groq, [{"provider": "Groq", "model": "llama-x", "label": "Llama X", "reason": "not set up on this server"}])
+        expected = {"provider": "Groq", "model": "llama-x", "label": "Llama X", "reason": "not set up on this server"}
+        self.assertEqual(groq, [expected])
         self.assertNotIn("llama-x", [m["model"] for m in data["model_options"]])
 
     def test_uses_googles_display_names(self):
@@ -744,9 +772,8 @@ class CancelTests(SimpleTestCase):
             if len(check_calls) > 1:
                 raise Cancelled()
 
-        with fake_dns({"example.com": PUBLIC_IP}), fake_site(lambda r: html_response()):
-            with self.assertRaises(Cancelled):
-                scrape_page("https://example.com/", check)
+        with fake_dns({"example.com": PUBLIC_IP}), fake_site(lambda r: html_response()), self.assertRaises(Cancelled):
+            scrape_page("https://example.com/", check)
 
     @patch("api.views.summarize_steps", side_effect=ai_steps())
     @patch("api.views.scrape_page", return_value=FAKE_PAGE)
@@ -828,7 +855,14 @@ class StreamTests(SimpleTestCase):
     def test_progress_events_then_result(self, _):
         def steps(page, preferred_model=None, check_cancelled=None):
             yield {"type": "model", "provider": "Google Gemini", "model": "gem-a", "label": "Gem A"}
-            yield {"type": "model_switch", "from_label": "Gem A", "reason": "busy", "provider": "Google Gemini", "model": "gem-b", "label": "Gem B"}
+            yield {
+                "type": "model_switch",
+                "from_label": "Gem A",
+                "reason": "busy",
+                "provider": "Google Gemini",
+                "model": "gem-b",
+                "label": "Gem B",
+            }
             yield {"type": "done", "result": {**AI_RESULT, "model": "gem-b", "model_label": "Gem B"}}
 
         with patch("api.views.summarize_steps", side_effect=steps):
@@ -839,6 +873,17 @@ class StreamTests(SimpleTestCase):
         self.assertEqual(reply.events[1]["title"], FAKE_PAGE["title"])
         self.assertEqual(reply.json()["model_label"], "Gem B")
         self.assertNotIn("failed_attempts", reply.json())
+
+    @override_settings(SUMMARIES_PER_DAY=3)
+    @patch("api.views.scrape_page", return_value=FAKE_PAGE)
+    def test_leaving_mid_stream_gives_the_try_back(self, _):
+        with patch("api.views.summarize_steps", side_effect=ai_steps()):
+            res = APIClient().post("/api/summarize/", {"url": "https://example.com"}, format="json")
+            stream = iter(res.streaming_content)
+            next(stream)
+            res.close()
+        usage = APIClient().get("/api/health/").json()["usage"]
+        self.assertEqual(usage["used"], 0)
 
     def test_bad_link_is_a_normal_http_error(self):
         res = APIClient().post("/api/summarize/", {"url": "http://10.0.0.1/"}, format="json")

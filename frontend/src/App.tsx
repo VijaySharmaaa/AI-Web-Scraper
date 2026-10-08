@@ -42,36 +42,41 @@ export default function App() {
   const requestIdRef = useRef<string | null>(null);
 
   const modelOptions = health.status === "ok" ? health.data.model_options ?? [] : [];
+  const activeModel = model !== AUTO && modelOptions.some((m) => m.model === model) ? model : AUTO;
 
   function changeModel(next: string) {
     setModel(next);
     saveModelChoice(next);
   }
 
-  useEffect(() => {
-    if (health.status !== "ok" || model === AUTO) return;
-    if (!modelOptions.some((m) => m.model === model)) changeModel(AUTO);
-  }, [health]);
+  const loadHealth = useCallback(
+    () =>
+      getHealth().then(
+        (data) => {
+          setHealth({ status: "ok", data });
+          setUsage(data.usage ?? null);
+        },
+        (err) => {
+          console.warn("[health] backend not reachable", err);
+          setHealth({ status: "down" });
+        }
+      ),
+    []
+  );
 
-  const checkHealth = useCallback(async () => {
+  function recheckHealth() {
     setHealth({ status: "checking" });
-    try {
-      const data = await getHealth();
-      setHealth({ status: "ok", data });
-      setUsage(data.usage ?? null);
-    } catch (err) {
-      console.warn("[health] backend not reachable", err);
-      setHealth({ status: "down" });
-    }
-  }, []);
+    loadHealth();
+  }
 
   useEffect(() => {
-    checkHealth();
-  }, [checkHealth]);
+    loadHealth();
+  }, [loadHealth]);
 
+  const backendDown = health.status === "down";
   useEffect(() => {
-    if (online && health.status === "down") checkHealth();
-  }, [online]);
+    if (online && backendDown) loadHealth();
+  }, [online, backendDown, loadHealth]);
 
   useEffect(() => {
     if (consent === "granted") saveHistory(history);
@@ -143,12 +148,12 @@ export default function App() {
     abortRef.current = controller;
     requestIdRef.current = requestId;
 
-    setView({ status: "loading", url, progress: { step: "starting", switches: [] } });
+    setView({ status: "loading", url, progress: { step: "starting" } });
 
     const onProgress = (event: Progress) => {
       setView((current) => {
         if (current.status !== "loading" || abortRef.current !== controller) return current;
-        const progress = { ...current.progress, switches: [...current.progress.switches] };
+        const progress = { ...current.progress };
         if (event.type === "step") progress.step = event.step;
         if (event.type === "model") {
           progress.step = "writing";
@@ -157,7 +162,7 @@ export default function App() {
         if (event.type === "model_switch") {
           progress.step = "writing";
           progress.modelLabel = event.label;
-          progress.switches.push(`${event.from_label} was ${event.reason}, now using ${event.label}`);
+          progress.note = `${event.from_label} was ${event.reason}, now using ${event.label}`;
         }
         return { ...current, progress };
       });
@@ -167,7 +172,7 @@ export default function App() {
     try {
       const result = await summarizeUrl(url, {
         signal: controller.signal,
-        model: model === AUTO ? undefined : model,
+        model: activeModel === AUTO ? undefined : activeModel,
         requestId,
         onProgress,
       });
@@ -175,7 +180,7 @@ export default function App() {
       setHistory((items) => addToHistory(items, item));
       if (result.usage !== undefined) setUsage(result.usage);
       setView({ status: "success", result, historyId: item.id, fromHistory: false });
-      if (health.status === "down") checkHealth();
+      if (health.status === "down") loadHealth();
       scrollToResult();
     } catch (err) {
       if (err instanceof ApiError && err.kind === "aborted") {
@@ -253,7 +258,7 @@ export default function App() {
 
         <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start xl:grid-cols-[minmax(0,1fr)_22rem]">
           <div className="min-w-0 space-y-6">
-            <StatusBanner online={online} health={health} onRecheck={checkHealth} />
+            <StatusBanner online={online} health={health} onRecheck={recheckHealth} />
 
             <UrlForm
               value={input}
@@ -263,7 +268,7 @@ export default function App() {
               blockedReason={blockedReason}
               inputRef={inputRef}
               showExamples={view.status === "idle" && history.length === 0}
-              model={model}
+              model={activeModel}
               onModelChange={changeModel}
               modelOptions={modelOptions}
               unavailableModels={health.status === "ok" ? health.data.unavailable_models : []}
@@ -280,7 +285,7 @@ export default function App() {
             <div ref={resultRef} className="scroll-mt-20 empty:hidden">
               {view.status === "loading" && <LoadingCard url={view.url} progress={view.progress} onCancel={cancel} />}
               {view.status === "error" && (
-                <ErrorCard error={view.error} errorKey={view.key} onRetry={() => summarize(view.url)} onEdit={editUrl} />
+                <ErrorCard key={view.key} error={view.error} onRetry={() => summarize(view.url)} onEdit={editUrl} />
               )}
               {view.status === "success" && (
                 <Suspense fallback={<div className="h-64 animate-pulse rounded-xl border bg-card" />}>
@@ -300,7 +305,7 @@ export default function App() {
               onRemove={removeFromHistory}
               onClear={clearHistory}
             />
-            <HowItWorks models={modelOptions} />
+            <HowItWorks />
           </aside>
         </div>
       </main>

@@ -32,9 +32,7 @@ describe("checkUrl", () => {
     ["javascript:alert(1)", "valid URL"],
     ["https://user:pass@example.com", "username or password"],
   ])("rejects %j", (input, message) => {
-    const result = checkUrl(input);
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.message).toContain(message);
+    expect(checkUrl(input)).toEqual({ ok: false, message: expect.stringContaining(message) });
   });
 
   it("rejects very long urls", () => {

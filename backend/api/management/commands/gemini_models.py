@@ -18,7 +18,7 @@ class Command(BaseCommand):
         try:
             available = fetch_gemini_models(api_key)
         except (httpx.HTTPError, ValueError) as e:
-            raise CommandError(f"Could not reach the Gemini API: {e!r}")
+            raise CommandError(f"Could not reach the Gemini API: {e!r}") from None
 
         shown = resolve_models(settings.GEMINI_MODELS, available)
         self.stdout.write(f"\nYour key can use {len(available)} text models:\n")

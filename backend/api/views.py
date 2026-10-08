@@ -82,6 +82,10 @@ class SummarizeView(APIView):
                 else:
                     yield stream_line(step)
             check_cancelled()
+        except GeneratorExit:
+            quota.refund(request)
+            logger.info("The visitor left before the summary was ready: %s", url)
+            raise
         except APIException as e:
             quota.refund(request)
             if isinstance(e, Cancelled):

@@ -1,19 +1,18 @@
 import { useEffect, useState } from "react";
 
-export function useCountdown(seconds: number | undefined, key?: unknown) {
-  const [left, setLeft] = useState(seconds ?? 0);
+export function useCountdown(seconds: number | undefined) {
+  const [endsAt] = useState(() => (seconds ? Date.now() + seconds * 1000 : 0));
+  const [now, setNow] = useState(Date.now);
 
   useEffect(() => {
-    setLeft(seconds ?? 0);
-    if (!seconds) return;
-    const started = Date.now();
+    if (!endsAt) return;
     const id = setInterval(() => {
-      const remaining = Math.max(0, seconds - Math.floor((Date.now() - started) / 1000));
-      setLeft(remaining);
-      if (remaining === 0) clearInterval(id);
+      const current = Date.now();
+      setNow(current);
+      if (current >= endsAt) clearInterval(id);
     }, 250);
     return () => clearInterval(id);
-  }, [seconds, key]);
+  }, [endsAt]);
 
-  return left;
+  return endsAt ? Math.max(0, Math.ceil((endsAt - now) / 1000)) : 0;
 }

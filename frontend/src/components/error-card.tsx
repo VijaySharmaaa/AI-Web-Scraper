@@ -7,13 +7,12 @@ import type { ErrorInfo } from "@/lib/errors";
 
 interface Props {
   error: ErrorInfo;
-  errorKey: number;
   onRetry: () => void;
   onEdit: () => void;
 }
 
-export function ErrorCard({ error, errorKey, onRetry, onEdit }: Props) {
-  const wait = useCountdown(error.retryAfter, errorKey);
+export function ErrorCard({ error, onRetry, onEdit }: Props) {
+  const wait = useCountdown(error.retryAfter);
   const Icon = error.tone === "destructive" ? XCircle : AlertTriangle;
 
   return (

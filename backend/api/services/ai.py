@@ -15,6 +15,9 @@ from ..exceptions import AIError
 logger = logging.getLogger(__name__)
 
 RATE_LIMITED = "rate limited / quota used up"
+OVERLOADED = "overloaded"
+TIMED_OUT = "timed out"
+SLOW_OR_BUSY = {RATE_LIMITED, OVERLOADED, TIMED_OUT}
 
 _client = None
 _client_lock = threading.Lock()
@@ -76,6 +79,8 @@ def check_status(response, provider):
         raise ModelFailed("model not found (maybe retired)")
     if code == 413:
         raise ModelFailed("page too long for this model")
+    if code == 503:
+        raise ModelFailed(OVERLOADED)
     if code >= 500:
         raise ModelFailed("service error")
     raise ModelFailed(f"request rejected (HTTP {code})")
@@ -86,7 +91,7 @@ def post(url, timeout, **kwargs):
         connect = min(settings.AI_CONNECT_TIMEOUT, timeout)
         return send("POST", url, timeout=httpx.Timeout(timeout, connect=connect), **kwargs)
     except httpx.TimeoutException:
-        raise ModelFailed("timed out") from None
+        raise ModelFailed(TIMED_OUT) from None
     except httpx.HTTPError as e:
         logger.warning("Request to %s failed: %r", url, e)
         raise ModelFailed("could not connect") from None
@@ -289,11 +294,28 @@ def tidy_summary(text):
 
 
 def short_reason(reason):
-    if reason == RATE_LIMITED:
+    if reason in (RATE_LIMITED, OVERLOADED):
         return "busy"
-    if reason == "timed out":
+    if reason == TIMED_OUT:
         return "too slow"
     return "unavailable"
+
+
+def cool_down(model, reason):
+    if reason in SLOW_OR_BUSY:
+        cache.set(f"model-cooldown:{model}", reason, settings.AI_MODEL_COOLDOWN_SECONDS)
+
+
+def is_cooling_down(model):
+    return cache.get(f"model-cooldown:{model}") is not None
+
+
+def healthy_first(chain):
+    ready = [c for c in chain if not is_cooling_down(c[1])]
+    resting = [c for c in chain if is_cooling_down(c[1])]
+    if resting:
+        logger.info("Trying these last, they were busy or slow a moment ago: %s", ", ".join(c[1] for c in resting))
+    return ready + resting
 
 
 def all_failed(attempts):
@@ -301,7 +323,7 @@ def all_failed(attempts):
     if len(messages) == 1 and all(a["user_message"] for a in attempts):
         return AIError(messages.pop(), 422, "ai_refused")
     reasons = {a["error"] for a in attempts}
-    if reasons == {RATE_LIMITED}:
+    if reasons and reasons <= {RATE_LIMITED, OVERLOADED}:
         return AIError("All AI models are busy right now. Please try again in a minute.", 429, "ai_quota")
     if reasons == {BAD_KEY}:
         logger.error("Every AI API key was rejected, check GEMINI_API_KEY / GROQ_API_KEY")
@@ -313,7 +335,7 @@ def chosen_model_failed(attempt):
     label = model_label(attempt["model"])
     if attempt["user_message"]:
         return AIError(attempt["user_message"], 422, "ai_refused")
-    if attempt["error"] == RATE_LIMITED:
+    if attempt["error"] in SLOW_OR_BUSY:
         return AIError(
             f"{label} is busy right now. Try again in a minute, pick another model, or switch to Auto.",
             429,
@@ -334,12 +356,18 @@ def model_chain(preferred_model=None):
     if preferred_model:
         chain = [c for c in chain if c[1] == preferred_model]
         if not chain:
-            raise AIError(f"{model_label(preferred_model)} isn't available right now. Pick another model or use Auto.", 400, "invalid_model")
+            raise AIError(
+                f"{model_label(preferred_model)} isn't available right now. Pick another model or use Auto.",
+                400,
+                "invalid_model",
+            )
     return chain
 
 
 def summarize_steps(page, preferred_model=None, check_cancelled=lambda: None):
     chain = model_chain(preferred_model)
+    if not preferred_model:
+        chain = healthy_first(chain)
     attempts = []
     deadline = time.monotonic() + settings.AI_TOTAL_TIME_LIMIT
 
@@ -348,7 +376,7 @@ def summarize_steps(page, preferred_model=None, check_cancelled=lambda: None):
         time_left = deadline - time.monotonic()
         if time_left < settings.AI_MIN_TIME_FOR_ATTEMPT:
             logger.warning("Out of time, not trying %s / %s", provider, model)
-            attempts.append({"provider": provider, "model": model, "error": "timed out", "user_message": None})
+            attempts.append({"provider": provider, "model": model, "error": TIMED_OUT, "user_message": None})
             break
 
         if attempts:
@@ -370,6 +398,7 @@ def summarize_steps(page, preferred_model=None, check_cancelled=lambda: None):
         except ModelFailed as e:
             logger.warning("%s / %s failed: %s", provider, model, e.reason)
             attempts.append({"provider": provider, "model": model, "error": e.reason, "user_message": e.user_message})
+            cool_down(model, e.reason)
             continue
         except (ValueError, KeyError, TypeError, IndexError):
             logger.exception("Bad response from %s / %s", provider, model)
