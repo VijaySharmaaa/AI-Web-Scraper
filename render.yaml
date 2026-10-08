@@ -4,7 +4,7 @@ services:
     runtime: python
     plan: free
     buildCommand: ./build.sh
-    startCommand: cd backend && gunicorn config.wsgi --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+    startCommand: cd backend && gunicorn config.wsgi -c gunicorn.conf.py
     healthCheckPath: /api/health/
     envVars:
       - key: PYTHON_VERSION

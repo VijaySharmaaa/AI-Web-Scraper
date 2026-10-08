@@ -1,16 +1,38 @@
 import logging
 import os
+import threading
 import time
 from functools import lru_cache
 
 import httpx
 from django.conf import settings
+from django.core.cache import cache
 
 from ..exceptions import AIError
 
 logger = logging.getLogger(__name__)
 
 RATE_LIMITED = "rate limited / quota used up"
+
+_client = None
+_client_lock = threading.Lock()
+
+
+def http_client():
+    global _client
+    if _client is None:
+        with _client_lock:
+            if _client is None:
+                limits = httpx.Limits(
+                    max_connections=settings.AI_MAX_CONNECTIONS,
+                    max_keepalive_connections=settings.AI_MAX_CONNECTIONS,
+                )
+                _client = httpx.Client(limits=limits, timeout=settings.AI_TIMEOUT)
+    return _client
+
+
+def send(method, url, **kwargs):
+    return http_client().request(method, url, **kwargs)
 BAD_KEY = "API key rejected"
 
 
@@ -60,7 +82,7 @@ def check_status(response, provider):
 def post(url, timeout, **kwargs):
     try:
         connect = min(settings.AI_CONNECT_TIMEOUT, timeout)
-        return httpx.post(url, timeout=httpx.Timeout(timeout, connect=connect), **kwargs)
+        return send("POST", url, timeout=httpx.Timeout(timeout, connect=connect), **kwargs)
     except httpx.TimeoutException:
         raise ModelFailed("timed out") from None
     except httpx.HTTPError as e:
@@ -116,6 +138,42 @@ def call_groq(model, page, api_key, timeout):
     return text, choice.get("finish_reason") == "length"
 
 
+def gemini_models_for_key(api_key):
+    configured = settings.GEMINI_MODELS
+    if not settings.GEMINI_CHECK_MODELS:
+        return configured
+
+    cache_key = f"gemini-models:{hash(api_key)}:{','.join(configured)}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    try:
+        response = send(
+            "GET",
+            settings.GEMINI_LIST_MODELS_URL,
+            params={"pageSize": 1000},
+            headers={"x-goog-api-key": api_key},
+            timeout=settings.AI_CONNECT_TIMEOUT,
+        )
+        response.raise_for_status()
+        available = {
+            m.get("name", "").removeprefix("models/")
+            for m in response.json().get("models", [])
+            if "generateContent" in m.get("supportedGenerationMethods", [])
+        }
+    except (httpx.HTTPError, ValueError) as e:
+        logger.warning("Could not check which Gemini models exist, using the configured list: %r", e)
+        return configured
+
+    models = [m for m in configured if m in available]
+    missing = [m for m in configured if m not in available]
+    if missing:
+        logger.warning("Gemini models not available for this key, hiding them: %s", ", ".join(missing))
+    cache.set(cache_key, models, settings.MODEL_CHECK_CACHE_SECONDS)
+    return models
+
+
 def providers():
     return [
         ("Google Gemini", "GEMINI_API_KEY", settings.GEMINI_MODELS, call_gemini),
@@ -127,8 +185,11 @@ def configured_models():
     chain = []
     for name, key_var, models, func in providers():
         api_key = os.getenv(key_var, "").strip()
-        if api_key:
-            chain += [(name, model, func, api_key) for model in models]
+        if not api_key:
+            continue
+        if func is call_gemini:
+            models = gemini_models_for_key(api_key)
+        chain += [(name, model, func, api_key) for model in models]
     return chain
 
 
@@ -148,7 +209,7 @@ def all_failed(attempts):
     return AIError(f"All {len(attempts)} AI models failed to answer. Please try again in a moment.", 502, "ai_failed")
 
 
-def summarize(page, preferred_model=None):
+def summarize(page, preferred_model=None, check_cancelled=lambda: None):
     chain = configured_models()
     if preferred_model:
         chosen = [c for c in chain if c[1] == preferred_model]
@@ -166,6 +227,7 @@ def summarize(page, preferred_model=None):
     attempts = []
     deadline = time.monotonic() + settings.AI_TOTAL_TIME_LIMIT
     for provider, model, func, api_key in chain:
+        check_cancelled()
         time_left = deadline - time.monotonic()
         if time_left < settings.AI_MIN_TIME_FOR_ATTEMPT:
             logger.warning("Out of time, not trying %s / %s", provider, model)

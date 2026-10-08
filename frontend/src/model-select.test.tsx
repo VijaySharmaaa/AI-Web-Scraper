@@ -71,7 +71,9 @@ describe("model picker", () => {
     expect(picker).toHaveTextContent("Auto");
 
     await submit(user);
-    expect(sentBody()).toEqual({ url: "https://example.com/article" });
+    const { request_id, ...rest } = sentBody();
+    expect(rest).toEqual({ url: "https://example.com/article" });
+    expect(request_id).toBeTruthy();
   });
 
   it("sends the picked model and remembers it", async () => {
@@ -83,7 +85,7 @@ describe("model picker", () => {
     expect(localStorage.getItem("ai-model")).toBe("llama-3.3-70b-versatile");
 
     await submit(user);
-    expect(sentBody()).toEqual({ url: "https://example.com/article", model: "llama-3.3-70b-versatile" });
+    expect(sentBody()).toMatchObject({ url: "https://example.com/article", model: "llama-3.3-70b-versatile" });
   });
 
   it("lists Auto first and groups models by provider", async () => {

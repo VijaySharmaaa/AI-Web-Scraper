@@ -31,6 +31,12 @@ class AIError(APIException):
         self.error_code = code or self.default_code
 
 
+class Cancelled(APIException):
+    status_code = 499
+    default_detail = "The request was cancelled."
+    default_code = "cancelled"
+
+
 class QuotaExceeded(APIException):
     status_code = 429
     default_detail = "Daily limit reached."

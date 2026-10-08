@@ -1,5 +1,5 @@
 import socket
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 import httpx
 from django.conf import settings
@@ -8,7 +8,7 @@ from django.test import SimpleTestCase, override_settings
 from rest_framework.test import APIClient
 from rest_framework.throttling import ScopedRateThrottle
 
-from .exceptions import AIError, ScrapeError
+from .exceptions import AIError, Cancelled, ScrapeError
 from .services import ai, scraper
 from .services.scraper import extract_text, scrape_page
 
@@ -203,6 +203,7 @@ def groq_ok(text="**TL;DR:** from groq"):
 
 @override_settings(GEMINI_MODELS=["gem-a", "gem-b"], GROQ_MODELS=["llama-a"])
 @patch.dict("os.environ", {"GEMINI_API_KEY": "g-key", "GROQ_API_KEY": "q-key"})
+@override_settings(GEMINI_CHECK_MODELS=False)
 class AIFallbackTests(SimpleTestCase):
     def run_with(self, responses):
         calls = []
@@ -211,7 +212,7 @@ class AIFallbackTests(SimpleTestCase):
             calls.append(kwargs.get("json", {}).get("model") or url.split("/models/")[1].split(":")[0])
             return responses[len(calls) - 1]
 
-        with patch("api.services.ai.httpx.post", side_effect=fake_post):
+        with patch("api.services.ai.send", side_effect=lambda method, url, **kw: fake_post(url, **kw)):
             return ai.summarize(FAKE_PAGE), calls
 
     def test_first_model_works(self):
@@ -265,7 +266,7 @@ class AIFallbackTests(SimpleTestCase):
                 raise httpx.ReadTimeout("slow")
             return gemini_ok()
 
-        with patch("api.services.ai.httpx.post", side_effect=fake_post):
+        with patch("api.services.ai.send", side_effect=lambda method, url, **kw: fake_post(url, **kw)):
             result = ai.summarize(FAKE_PAGE)
         self.assertEqual(result["failed_attempts"][0]["error"], "timed out")
 
@@ -273,7 +274,7 @@ class AIFallbackTests(SimpleTestCase):
         clock = iter([0, 0, 80, 80, 80, 80])
 
         with patch("api.services.ai.time.monotonic", side_effect=lambda: next(clock)), \
-                patch("api.services.ai.httpx.post", return_value=httpx.Response(500)) as mock_post:
+                patch("api.services.ai.send", return_value=httpx.Response(500)) as mock_post:
             with self.assertRaises(AIError):
                 ai.summarize(FAKE_PAGE)
         self.assertEqual(mock_post.call_count, 1)
@@ -285,7 +286,7 @@ class AIFallbackTests(SimpleTestCase):
             calls.append(kwargs.get("json", {}).get("model") or url.split("/models/")[1].split(":")[0])
             return groq_ok()
 
-        with patch("api.services.ai.httpx.post", side_effect=fake_post):
+        with patch("api.services.ai.send", side_effect=lambda method, url, **kw: fake_post(url, **kw)):
             result = ai.summarize(FAKE_PAGE, preferred_model="llama-a")
         self.assertEqual(calls, ["llama-a"])
         self.assertEqual(result["model"], "llama-a")
@@ -298,7 +299,7 @@ class AIFallbackTests(SimpleTestCase):
             calls.append(kwargs.get("json", {}).get("model") or url.split("/models/")[1].split(":")[0])
             return responses[len(calls) - 1]
 
-        with patch("api.services.ai.httpx.post", side_effect=fake_post):
+        with patch("api.services.ai.send", side_effect=lambda method, url, **kw: fake_post(url, **kw)):
             result = ai.summarize(FAKE_PAGE, preferred_model="gem-b")
         self.assertEqual(calls, ["gem-b", "gem-a"])
         self.assertEqual(result["model"], "gem-a")
@@ -324,6 +325,7 @@ class AIFallbackTests(SimpleTestCase):
 AI_RESULT = {"summary": "**TL;DR:** test", "provider": "Google Gemini", "model": "gem-a", "failed_attempts": []}
 
 
+@override_settings(GEMINI_CHECK_MODELS=False)
 class SummarizeApiTests(SimpleTestCase):
     def setUp(self):
         cache.clear()
@@ -377,7 +379,7 @@ class SummarizeApiTests(SimpleTestCase):
         self.assertEqual(data["provider"], "Google Gemini")
         self.assertEqual(data["model"], "gem-a")
         self.assertEqual(data["word_count"], 40)
-        mock_scrape.assert_called_once_with("https://example.com")
+        mock_scrape.assert_called_once_with("https://example.com", ANY)
         self.assertEqual(res["Cache-Control"], "no-store")
 
     @patch("api.views.scrape_page", side_effect=RuntimeError("boom"))
@@ -404,7 +406,7 @@ class SummarizeApiTests(SimpleTestCase):
     def test_chosen_model_is_passed_on(self, mock_scrape, mock_ai):
         res = self.post({"url": "https://example.com", "model": "gem-b"})
         self.assertEqual(res.status_code, 200)
-        mock_ai.assert_called_once_with(FAKE_PAGE, preferred_model="gem-b")
+        mock_ai.assert_called_once_with(FAKE_PAGE, preferred_model="gem-b", check_cancelled=ANY)
         self.assertEqual(res.json()["requested_model"], "gem-b")
 
     @override_settings(GEMINI_MODELS=["gem-a"])
@@ -425,7 +427,7 @@ class SummarizeApiTests(SimpleTestCase):
     def test_empty_model_means_auto(self, mock_scrape, mock_ai):
         res = self.post({"url": "https://example.com", "model": ""})
         self.assertEqual(res.status_code, 200)
-        mock_ai.assert_called_once_with(FAKE_PAGE, preferred_model=None)
+        mock_ai.assert_called_once_with(FAKE_PAGE, preferred_model=None, check_cancelled=ANY)
         self.assertIsNone(res.json()["requested_model"])
 
     def test_health(self):
@@ -445,6 +447,7 @@ class SummarizeApiTests(SimpleTestCase):
 
 
 @override_settings(SUMMARIES_PER_DAY=3)
+@override_settings(GEMINI_CHECK_MODELS=False)
 class DailyQuotaTests(SimpleTestCase):
     def setUp(self):
         cache.clear()
@@ -509,6 +512,7 @@ class DailyQuotaTests(SimpleTestCase):
             self.assertEqual(self.post().status_code, 200)
 
 
+@override_settings(GEMINI_CHECK_MODELS=False)
 class NoQuotaTests(SimpleTestCase):
     @override_settings(SUMMARIES_PER_DAY=0)
     def test_unlimited_has_no_usage(self):
@@ -534,3 +538,122 @@ class SettingsTests(SimpleTestCase):
     def test_ports_come_from_settings(self):
         with fake_dns({"example.com": PUBLIC_IP}), self.assertRaises(ScrapeError):
             scrape_page("http://example.com:8080/")
+
+
+@override_settings(GEMINI_CHECK_MODELS=True, GEMINI_MODELS=["gemini-a", "gemini-gone", "gemini-b"], GROQ_MODELS=[])
+@patch.dict("os.environ", {"GEMINI_API_KEY": "k", "GROQ_API_KEY": ""})
+class GeminiModelCheckTests(SimpleTestCase):
+    def setUp(self):
+        cache.clear()
+
+    def models_response(self):
+        return httpx.Response(200, json={"models": [
+            {"name": "models/gemini-a", "supportedGenerationMethods": ["generateContent"]},
+            {"name": "models/gemini-b", "supportedGenerationMethods": ["generateContent", "countTokens"]},
+            {"name": "models/embedding-x", "supportedGenerationMethods": ["embedContent"]},
+        ]}, request=httpx.Request("GET", "https://example.test"))
+
+    def test_hides_models_the_key_cant_use(self):
+        with patch("api.services.ai.send", return_value=self.models_response()):
+            names = [m["model"] for m in ai.available_models()]
+        self.assertEqual(names, ["gemini-a", "gemini-b"])
+
+    def test_result_is_cached(self):
+        with patch("api.services.ai.send", return_value=self.models_response()) as mock_get:
+            ai.available_models()
+            ai.available_models()
+        self.assertEqual(mock_get.call_count, 1)
+
+    def test_falls_back_to_configured_list_when_google_is_unreachable(self):
+        with patch("api.services.ai.send", side_effect=httpx.ConnectError("down")):
+            names = [m["model"] for m in ai.available_models()]
+        self.assertEqual(names, ["gemini-a", "gemini-gone", "gemini-b"])
+
+    def test_keeps_configured_order(self):
+        with patch("api.services.ai.send", return_value=self.models_response()):
+            chain = [model for _, model, *_ in ai.configured_models()]
+        self.assertEqual(chain, ["gemini-a", "gemini-b"])
+
+
+@override_settings(GEMINI_CHECK_MODELS=False, SUMMARIES_PER_DAY=3)
+class CancelTests(SimpleTestCase):
+    def setUp(self):
+        cache.clear()
+        self.client = APIClient()
+
+    def summarize(self, request_id="req-12345678"):
+        return self.client.post("/api/summarize/", {"url": "https://example.com", "request_id": request_id}, format="json")
+
+    def cancel(self, request_id="req-12345678", client=None):
+        return (client or self.client).post("/api/summarize/cancel/", {"request_id": request_id}, format="json")
+
+    def used(self):
+        return self.client.get("/api/health/").json()["usage"]["used"]
+
+    @patch("api.views.summarize", return_value=AI_RESULT)
+    @patch("api.views.scrape_page", return_value=FAKE_PAGE)
+    def test_cancel_before_start_stops_everything(self, mock_scrape, mock_ai):
+        self.assertEqual(self.cancel().status_code, 202)
+        res = self.summarize()
+        self.assertEqual(res.status_code, 499)
+        self.assertEqual(res.json()["code"], "cancelled")
+        mock_scrape.assert_not_called()
+        mock_ai.assert_not_called()
+        self.assertEqual(self.used(), 0)
+
+    @patch("api.views.scrape_page", return_value=FAKE_PAGE)
+    def test_cancel_during_ai_skips_remaining_models(self, _):
+        calls = []
+
+        def fake_summarize(page, preferred_model=None, check_cancelled=None):
+            calls.append("first model")
+            self.cancel()
+            check_cancelled()
+            calls.append("second model")
+
+        with patch("api.views.summarize", side_effect=fake_summarize):
+            res = self.summarize()
+        self.assertEqual(res.status_code, 499)
+        self.assertEqual(calls, ["first model"])
+        self.assertEqual(self.used(), 0)
+
+    @patch("api.views.scrape_page", return_value=FAKE_PAGE)
+    def test_cancel_after_ai_answered_still_refunds(self, _):
+        def fake_summarize(page, preferred_model=None, check_cancelled=None):
+            self.cancel()
+            return AI_RESULT
+
+        with patch("api.views.summarize", side_effect=fake_summarize):
+            res = self.summarize()
+        self.assertEqual(res.status_code, 499)
+        self.assertEqual(self.used(), 0)
+
+    def test_cancel_stops_the_download(self):
+        check_calls = []
+
+        def check():
+            check_calls.append(1)
+            if len(check_calls) > 1:
+                raise Cancelled()
+
+        with fake_dns({"example.com": PUBLIC_IP}), fake_site(lambda r: html_response()):
+            with self.assertRaises(Cancelled):
+                scrape_page("https://example.com/", check)
+
+    @patch("api.views.summarize", return_value=AI_RESULT)
+    @patch("api.views.scrape_page", return_value=FAKE_PAGE)
+    def test_other_visitors_cant_cancel_your_request(self, *_):
+        self.cancel(client=APIClient(REMOTE_ADDR="10.1.1.1"))
+        self.assertEqual(self.summarize().status_code, 200)
+
+    @patch("api.views.summarize", return_value=AI_RESULT)
+    @patch("api.views.scrape_page", return_value=FAKE_PAGE)
+    def test_cancelling_a_different_request_does_nothing(self, *_):
+        self.cancel("other-request-1")
+        self.assertEqual(self.summarize().status_code, 200)
+        self.assertEqual(self.used(), 1)
+
+    def test_cancel_validates_the_id(self):
+        for bad in ["", "short", "has spaces in it", "x" * 100, "<script>alert(1)</script>"]:
+            with self.subTest(bad=bad):
+                self.assertEqual(self.cancel(bad).status_code, 400)

@@ -68,7 +68,9 @@ describe("App", () => {
     expect(screen.getByText(/only the first part was used/)).toBeInTheDocument();
 
     const call = fetchMock.mock.calls.find(([u]) => String(u).includes("summarize"));
-    expect(JSON.parse(String(call?.[1]?.body))).toEqual({ url: "https://en.wikipedia.org/wiki/Web_scraping" });
+    const sent = JSON.parse(String(call?.[1]?.body));
+    expect(sent.url).toBe("https://en.wikipedia.org/wiki/Web_scraping");
+    expect(sent.request_id).toMatch(/^[A-Za-z0-9-]{8,64}$/);
 
     const history = screen.getByRole("region", { name: /recent summaries/i });
     expect(within(history).getByText(RESULT.title)).toBeInTheDocument();
@@ -90,10 +92,14 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: RESULT.title })).toBeInTheDocument();
   });
 
-  it("can cancel a request", async () => {
-    mockFetch((_u, init) => new Promise((_, reject) => {
-      init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
-    }));
+  it("can cancel a request and tells the server to stop", async () => {
+    const fetchMock = mockFetch((u, init) =>
+      u.includes("/cancel/")
+        ? json({ cancelled: true }, 202)
+        : new Promise((_, reject) => {
+            init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+          })
+    );
     const user = userEvent.setup();
     renderApp();
 
@@ -103,6 +109,10 @@ describe("App", () => {
 
     await waitFor(() => expect(screen.queryByText("Loading...")).not.toBeInTheDocument());
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    const bodyOf = (part: string) =>
+      JSON.parse(String(fetchMock.mock.calls.find(([u]) => String(u).endsWith(part))?.[1]?.body));
+    expect(bodyOf("/api/summarize/cancel/").request_id).toBe(bodyOf("/api/summarize/").request_id);
   });
 
   it("validates the url before sending", async () => {

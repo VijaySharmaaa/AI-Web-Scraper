@@ -121,6 +121,7 @@ SILENCED_SYSTEM_CHECKS = [
 ]
 
 SUMMARIES_PER_DAY = env_int("SUMMARIES_PER_DAY", 0)
+CANCEL_FLAG_SECONDS = env_int("CANCEL_FLAG_SECONDS", 600)
 
 SCRAPER_MAX_URL_LENGTH = env_int("SCRAPER_MAX_URL_LENGTH", 2000)
 SCRAPER_MAX_TEXT_CHARS = env_int("SCRAPER_MAX_TEXT_CHARS", 15000)
@@ -135,6 +136,7 @@ SCRAPER_USER_AGENT = os.getenv(
     "SCRAPER_USER_AGENT",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
 )
+SCRAPER_HTML_PARSER = os.getenv("SCRAPER_HTML_PARSER", "lxml")
 SCRAPER_MAX_TITLE_CHARS = env_int("SCRAPER_MAX_TITLE_CHARS", 300)
 SCRAPER_FALLBACK_MIN_CHARS = env_int("SCRAPER_FALLBACK_MIN_CHARS", 200)
 SCRAPER_TEXT_TAGS = env_list("SCRAPER_TEXT_TAGS", "h1,h2,h3,h4,p,li,blockquote,pre,td")
@@ -147,10 +149,20 @@ GEMINI_API_URL = os.getenv(
     "GEMINI_API_URL", "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 )
 GROQ_API_URL = os.getenv("GROQ_API_URL", "https://api.groq.com/openai/v1/chat/completions")
-GEMINI_MODELS = env_list("GEMINI_MODELS", os.getenv("GEMINI_MODEL", "gemini-flash-latest,gemini-flash-lite-latest"))
+GEMINI_MODELS = env_list(
+    "GEMINI_MODELS",
+    os.getenv(
+        "GEMINI_MODEL",
+        "gemini-flash-latest,gemini-3.5-flash,gemini-flash-lite-latest,gemini-3.1-flash-lite,gemini-pro-latest",
+    ),
+)
+GEMINI_LIST_MODELS_URL = os.getenv("GEMINI_LIST_MODELS_URL", "https://generativelanguage.googleapis.com/v1beta/models")
+GEMINI_CHECK_MODELS = env_bool("GEMINI_CHECK_MODELS", True)
+MODEL_CHECK_CACHE_SECONDS = env_int("MODEL_CHECK_CACHE_SECONDS", 3600)
 GROQ_MODELS = env_list("GROQ_MODELS", "llama-3.3-70b-versatile,llama-3.1-8b-instant")
 AI_TIMEOUT = env_float("AI_TIMEOUT", 45)
 AI_CONNECT_TIMEOUT = env_float("AI_CONNECT_TIMEOUT", 10)
+AI_MAX_CONNECTIONS = env_int("AI_MAX_CONNECTIONS", 20)
 AI_TOTAL_TIME_LIMIT = env_float("AI_TOTAL_TIME_LIMIT", 75)
 AI_MIN_TIME_FOR_ATTEMPT = env_float("AI_MIN_TIME_FOR_ATTEMPT", 5)
 AI_TEMPERATURE = env_float("AI_TEMPERATURE", 0.3)

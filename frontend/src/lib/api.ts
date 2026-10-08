@@ -79,11 +79,32 @@ async function request<T>(path: string, init: RequestInit = {}, signal?: AbortSi
   return data as T;
 }
 
-export function summarizeUrl(url: string, signal?: AbortSignal, model?: string) {
-  const body = model ? { url, model } : { url };
+export function newRequestId() {
+  return typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+export function summarizeUrl(url: string, signal?: AbortSignal, model?: string, requestId?: string) {
+  const body = { url, ...(model ? { model } : {}), ...(requestId ? { request_id: requestId } : {}) };
   return request<SummaryResponse>("/api/summarize/", { method: "POST", body: JSON.stringify(body) }, signal);
 }
 
-export function getHealth(signal?: AbortSignal) {
-  return request<HealthResponse>("/api/health/", {}, signal);
+export function cancelSummary(requestId: string) {
+  console.log("[api] cancel", requestId);
+  return fetch(`${config.apiUrl}/api/summarize/cancel/`, {
+    method: "POST",
+    keepalive: true,
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ request_id: requestId }),
+  }).catch((err) => console.warn("[api] cancel failed", err));
+}
+
+let healthInFlight: Promise<HealthResponse> | null = null;
+
+export function getHealth() {
+  healthInFlight ??= request<HealthResponse>("/api/health/").finally(() => {
+    healthInFlight = null;
+  });
+  return healthInFlight;
 }

@@ -9,3 +9,6 @@ cd ..
 
 echo "--- installing backend ---"
 pip install -r backend/requirements.txt
+
+echo "--- compressing frontend files ---"
+python -m whitenoise.compress frontend/dist

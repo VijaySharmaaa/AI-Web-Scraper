@@ -9,10 +9,19 @@ export default defineConfig({
   resolve: {
     alias: { "@": path.resolve(__dirname, "./src") },
   },
+  build: {
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [{ name: "react", test: /node_modules[\\/](react|react-dom|scheduler)[\\/]/ }],
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
     proxy: {
-      "/api": "http://127.0.0.1:8000",
+      "/api": process.env.API_PROXY_TARGET || "http://127.0.0.1:8000",
     },
   },
   test: {

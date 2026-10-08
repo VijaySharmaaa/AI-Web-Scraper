@@ -10,7 +10,7 @@ import { SiteHeader } from "@/components/site-header";
 import { StatusBanner, type HealthState } from "@/components/status-banner";
 import { UrlForm } from "@/components/url-form";
 import { useOnline } from "@/hooks/use-online";
-import { ApiError, getHealth, summarizeUrl } from "@/lib/api";
+import { ApiError, cancelSummary, getHealth, newRequestId, summarizeUrl } from "@/lib/api";
 import { describeError, type ErrorInfo } from "@/lib/errors";
 import { loadConsent, saveConsent, type Consent } from "@/lib/consent";
 import { AUTO, loadModelChoice, saveModelChoice } from "@/lib/model-choice";
@@ -39,6 +39,7 @@ export default function App() {
   const inputRef = useRef<HTMLInputElement>(null);
   const resultRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const requestIdRef = useRef<string | null>(null);
 
   const modelOptions = health.status === "ok" ? health.data.model_options ?? [] : [];
 
@@ -103,14 +104,20 @@ export default function App() {
         inputRef.current?.select();
       }
       if (e.key === "Escape" && abortRef.current) {
-        abortRef.current.abort();
+        stopRunning();
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  useEffect(() => () => abortRef.current?.abort(), []);
+  useEffect(() => () => stopRunning(), []);
+
+  useEffect(() => {
+    const onLeave = () => stopRunning();
+    window.addEventListener("pagehide", onLeave);
+    return () => window.removeEventListener("pagehide", onLeave);
+  }, []);
 
   const scrollToResult = () => {
     requestAnimationFrame(() => {
@@ -123,16 +130,24 @@ export default function App() {
     });
   };
 
-  async function summarize(url: string) {
+  function stopRunning() {
+    if (requestIdRef.current) cancelSummary(requestIdRef.current);
+    requestIdRef.current = null;
     abortRef.current?.abort();
+  }
+
+  async function summarize(url: string) {
+    stopRunning();
     const controller = new AbortController();
+    const requestId = newRequestId();
     abortRef.current = controller;
+    requestIdRef.current = requestId;
 
     setView({ status: "loading", url });
     scrollToResult();
 
     try {
-      const result = await summarizeUrl(url, controller.signal, model === AUTO ? undefined : model);
+      const result = await summarizeUrl(url, controller.signal, model === AUTO ? undefined : model, requestId);
       const item = createHistoryItem(result);
       setHistory((items) => addToHistory(items, item));
       if (result.usage !== undefined) setUsage(result.usage);
@@ -156,11 +171,12 @@ export default function App() {
       if (err instanceof ApiError && err.kind === "network") setHealth({ status: "down" });
     } finally {
       if (abortRef.current === controller) abortRef.current = null;
+      if (requestIdRef.current === requestId) requestIdRef.current = null;
     }
   }
 
   function cancel() {
-    abortRef.current?.abort();
+    stopRunning();
   }
 
   function startOver() {

@@ -21,14 +21,20 @@ class SummarizeRequestSerializer(serializers.Serializer):
         error_messages={"invalid": "That model name isn't valid."},
     )
 
+    request_id = serializers.RegexField(r"^[A-Za-z0-9-]{8,64}$", required=False)
+
     def to_internal_value(self, data):
         url = data.get("url") if hasattr(data, "get") else None
         if isinstance(url, str):
             url = url.strip()
             if url and "://" not in url:
                 url = "https://" + url
-            data = {"url": url, **({"model": data["model"]} if "model" in data else {})}
+            data = {"url": url, **{k: data[k] for k in ("model", "request_id") if k in data}}
         return super().to_internal_value(data)
+
+
+class CancelRequestSerializer(serializers.Serializer):
+    request_id = serializers.RegexField(r"^[A-Za-z0-9-]{8,64}$")
 
 
 class FailedAttemptSerializer(serializers.Serializer):

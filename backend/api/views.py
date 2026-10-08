@@ -7,9 +7,9 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .serializers import SummarizeRequestSerializer, SummarySerializer
-from . import quota
-from .exceptions import AIError
+from .serializers import CancelRequestSerializer, SummarizeRequestSerializer, SummarySerializer
+from . import cancellation, quota
+from .exceptions import AIError, Cancelled
 from .services.ai import available_models, summarize
 from .services.scraper import scrape_page
 
@@ -52,12 +52,18 @@ class SummarizeView(APIView):
         logger.info("Summarize request for %s (model: %s)", url, model or "auto")
         start = time.time()
 
+        check_cancelled = cancellation.checker(request, serializer.validated_data.get("request_id"))
+
         quota.reserve(request)
         try:
-            page = scrape_page(url)
-            ai = summarize(page, preferred_model=model)
-        except Exception:
+            check_cancelled()
+            page = scrape_page(url, check_cancelled)
+            ai = summarize(page, preferred_model=model, check_cancelled=check_cancelled)
+            check_cancelled()
+        except Exception as e:
             quota.refund(request)
+            if isinstance(e, Cancelled):
+                logger.info("Cancelled by the user: %s", url)
             raise
 
         took = round(time.time() - start, 2)
@@ -74,6 +80,15 @@ class SummarizeView(APIView):
             **ai,
         })
         return Response({**result.data, "usage": quota.usage(request)}, status=status.HTTP_200_OK)
+
+
+class CancelView(APIView):
+
+    def post(self, request):
+        serializer = CancelRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        cancellation.cancel(request, serializer.validated_data["request_id"])
+        return Response({"cancelled": True}, status=status.HTTP_202_ACCEPTED)
 
 
 def api_not_found(request, *args, **kwargs):

@@ -84,11 +84,16 @@ def build_request(clients, url):
     return client, request
 
 
-def read_limited(response, deadline):
+def no_check():
+    return None
+
+
+def read_limited(response, deadline, check_cancelled=no_check):
     limit = settings.SCRAPER_MAX_DOWNLOAD_BYTES
     chunks = []
     total = 0
     for chunk in response.iter_bytes():
+        check_cancelled()
         if time.monotonic() > deadline:
             raise ScrapeError("The website is sending the page too slowly", 504, "site_timeout")
         room = limit - total
@@ -135,7 +140,7 @@ def http_clients():
     return httpx.Client(trust_env=False, verify=verify, **options), httpx.Client(**options)
 
 
-def fetch_html(url):
+def fetch_html(url, check_cancelled=no_check):
     logger.debug("Fetching %s", url)
     deadline = time.monotonic() + settings.SCRAPER_TOTAL_TIME_LIMIT
 
@@ -144,6 +149,7 @@ def fetch_html(url):
         with direct, proxy:
             clients = {"direct": direct, "proxy": proxy}
             for _ in range(settings.SCRAPER_MAX_REDIRECTS + 1):
+                check_cancelled()
                 if time.monotonic() > deadline:
                     raise ScrapeError("The website took too long to respond", 504, "site_timeout")
                 client, request = build_request(clients, url)
@@ -154,7 +160,7 @@ def fetch_html(url):
                         logger.debug("Redirected to %s", url)
                         continue
                     check_response(response)
-                    return read_limited(response, deadline), response.charset_encoding, url
+                    return read_limited(response, deadline, check_cancelled), response.charset_encoding, url
                 finally:
                     response.close()
     except httpx.TimeoutException:
@@ -171,7 +177,7 @@ def clean(text):
 
 
 def extract_text(html, encoding=None):
-    soup = BeautifulSoup(html, "html.parser", from_encoding=encoding if isinstance(html, bytes) else None)
+    soup = BeautifulSoup(html, settings.SCRAPER_HTML_PARSER, from_encoding=encoding if isinstance(html, bytes) else None)
 
     title = ""
     og_title = soup.find("meta", property="og:title")
@@ -201,8 +207,8 @@ def extract_text(html, encoding=None):
     return title[: settings.SCRAPER_MAX_TITLE_CHARS], text
 
 
-def scrape_page(url):
-    html, encoding, final_url = fetch_html(url)
+def scrape_page(url, check_cancelled=no_check):
+    html, encoding, final_url = fetch_html(url, check_cancelled)
     title, text = extract_text(html, encoding)
     logger.debug("Title=%r, extracted %d chars", title, len(text))
 

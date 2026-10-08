@@ -11,8 +11,11 @@ model, and you get a short summary back (a TL;DR plus key points).
   screens (results + a sidebar with history and "how it works"), one column on phones
 - **Themes**: light / dark / system mode and shadcn's base colors (Neutral, Zinc, Stone, Slate, Gray)
   from the palette button in the header. Neutral is the default
-- **Pick the AI model**: Auto (best available) or any model the server has a key for. If the picked
-  model is busy, the next one answers and the result says so
+- **Pick the AI model**: a picker inside the search box, like a chat composer: Auto (best available)
+  or any model the server has a key for. Models your key can't use are hidden automatically. If the
+  picked model is busy, the next one answers and the result says so
+- **Real cancel**: Cancel (or Esc) stops the work on the server too, between steps, and gives the
+  daily try back
 - **Every state handled**: loading steps with a cancel button, specific error messages (site blocked,
   page not found, not a web page, JavaScript-only page, rate limits...) with "Try again" / "Edit URL"
   actions, and banners when you're offline, the server is down or has no AI key
@@ -22,10 +25,19 @@ model, and you get a short summary back (a TL;DR plus key points).
 - **Copy or download as PDF**: the PDF has the title, link, model, date and the summary.
   Pages in other alphabets use the browser's "Save as PDF" so every character comes out right
 - **Daily limit**: a configurable number of summaries per visitor per day (3 on the live demo).
-  Failed attempts don't count, and the app shows how many are left and when the limit resets
+  Failed or cancelled attempts don't count. A ring next to the model name shows the tries left
 - **Colored hover states**: red for remove / clear / cancel, green for the main actions, blue for the rest
 - **Secure by default**: SSRF protection, rate limiting, security headers, CSP (see [Security](#security))
 - **Configurable**: limits, timeouts, models, URLs and the AI prompt all come from environment variables
+
+## About shadcn/ui
+
+shadcn/ui is not an API and not a runtime library. Its CLI copies the source of each component into
+the project (`frontend/src/components/ui/`), so the app owns that code and nothing is fetched from
+shadcn at runtime. The components are built on [Radix UI](https://www.radix-ui.com/) primitives
+(the real dependency, for accessibility and keyboard handling) and styled with Tailwind. Only the
+components that are used are included: button, input, card, alert, badge, skeleton, separator,
+tooltip, popover, select, alert dialog, spinner and the sonner toaster.
 
 ## Tech stack
 
@@ -216,10 +228,32 @@ Rate limit errors also include `retry_after` (seconds).
 | 502 / 504 | `site_unreachable`, `site_error`, `site_timeout`, `ai_failed` |
 | 503 | `ai_not_configured`, `ai_bad_key` |
 
+### `POST /api/summarize/cancel/`
+
+Body `{ "request_id": "..." }`, the same id sent with `/api/summarize/`. The running request stops at
+its next step and the daily try is given back. Returns `202`. A visitor can only cancel their own requests.
+
 ### `GET /api/health/`
 
 Returns whether AI is set up, the models in fallback order (with their provider), your usage for
 today, the limits the frontend should use and the example links. Never returns API keys.
+
+## Performance
+
+Measured on the production build served by Django:
+
+| | Before | After |
+|---|---|---|
+| Data downloaded on first visit | 503 KB | 129 KB (brotli / gzip, made at build time) |
+| Repeat visits | most files again | hashed files cached for a year, React in its own long-lived chunk |
+| `/api/health/` calls on load | 2 (in dev) | 1 (shared in-flight request) |
+| Health check while 4 summaries run | 8.9 s (2 sync workers busy) | 0.005 s (gunicorn threads) |
+| Parsing a 1.6 MB page | 0.27 s (`html.parser`) | 0.18 s (`lxml`) |
+
+Other details: the markdown renderer and the PDF library are only downloaded when needed, AI calls
+reuse open connections, the list of Gemini models a key can use is cached for an hour, and the dev
+server (`npm run dev`) shows many requests because Vite serves every source file separately there.
+That's normal for development and doesn't happen in the built app.
 
 ## Security
 
@@ -269,6 +303,8 @@ The most useful ones:
 |----------|---------|-------|
 | `GEMINI_API_KEY` / `GROQ_API_KEY` | - | at least one is needed |
 | `GEMINI_MODELS` / `GROQ_MODELS` | see `.env.example` | models to offer, in fallback order |
+| `GEMINI_CHECK_MODELS` | `True` | hide Gemini models the key can't use (checked hourly) |
+| `WEB_CONCURRENCY` / `GUNICORN_THREADS` | `2` / `8` | gunicorn workers and threads per worker |
 | `SUMMARIES_PER_DAY` | `0` (unlimited) | per visitor IP, resets at midnight UTC. `3` on Render |
 | `THROTTLE_SUMMARIZE` | `10/min` | burst limit per IP |
 | `SCRAPER_MAX_TEXT_CHARS` | `15000` | how much page text is sent to the AI |
