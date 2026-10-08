@@ -1,30 +1,52 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 
+import { DEFAULT_COLOR, isThemeColor, type ThemeColor } from "@/lib/themes";
+
 export type Theme = "light" | "dark" | "system";
 
 interface ThemeState {
   theme: Theme;
   resolvedTheme: "light" | "dark";
   setTheme: (theme: Theme) => void;
+  color: ThemeColor;
+  setColor: (color: ThemeColor) => void;
 }
 
 const ThemeContext = createContext<ThemeState | null>(null);
 
 function systemPrefersDark() {
-  return typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: dark)").matches;
+  return typeof window !== "undefined" && !!window.matchMedia?.("(prefers-color-scheme: dark)").matches;
 }
 
-function readSaved(): Theme {
+function read(key: string) {
   try {
-    const saved = localStorage.getItem("theme");
-    return saved === "light" || saved === "dark" ? saved : "system";
+    return localStorage.getItem(key);
   } catch {
-    return "system";
+    return null;
   }
 }
 
+function write(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // not saved, fine
+  }
+}
+
+function readSavedTheme(): Theme {
+  const saved = read("theme");
+  return saved === "light" || saved === "dark" ? saved : "system";
+}
+
+function readSavedColor(): ThemeColor {
+  const saved = read("theme-color");
+  return isThemeColor(saved) ? saved : DEFAULT_COLOR;
+}
+
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>(readSaved);
+  const [theme, setThemeState] = useState<Theme>(readSavedTheme);
+  const [color, setColorState] = useState<ThemeColor>(readSavedColor);
   const [systemDark, setSystemDark] = useState(systemPrefersDark);
 
   // follow the OS setting when it changes
@@ -42,16 +64,25 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     document.documentElement.classList.toggle("dark", resolvedTheme === "dark");
   }, [resolvedTheme]);
 
+  useEffect(() => {
+    const root = document.documentElement;
+    if (color === DEFAULT_COLOR) root.removeAttribute("data-color");
+    else root.setAttribute("data-color", color);
+  }, [color]);
+
   const setTheme = useCallback((next: Theme) => {
     setThemeState(next);
-    try {
-      localStorage.setItem("theme", next);
-    } catch {
-      // not saved, fine
-    }
+    write("theme", next);
   }, []);
 
-  return <ThemeContext.Provider value={{ theme, resolvedTheme, setTheme }}>{children}</ThemeContext.Provider>;
+  const setColor = useCallback((next: ThemeColor) => {
+    setColorState(next);
+    write("theme-color", next);
+  }, []);
+
+  return (
+    <ThemeContext.Provider value={{ theme, resolvedTheme, setTheme, color, setColor }}>{children}</ThemeContext.Provider>
+  );
 }
 
 export function useTheme() {

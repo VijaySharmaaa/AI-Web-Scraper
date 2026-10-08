@@ -1,11 +1,5 @@
-import { Monitor, Moon, Sun } from "lucide-react";
-
+import { ThemeMenu } from "@/components/theme-menu";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { useTheme, type Theme } from "@/hooks/use-theme";
-
-const NEXT_THEME: Record<Theme, Theme> = { light: "dark", dark: "system", system: "light" };
-const THEME_LABEL: Record<Theme, string> = { light: "Light", dark: "Dark", system: "System" };
 
 export function Logo({ className = "size-8" }: { className?: string }) {
   return (
@@ -14,28 +8,6 @@ export function Logo({ className = "size-8" }: { className?: string }) {
       <path d="M9 11h14M9 16h10M9 21h7" className="stroke-primary-foreground" strokeWidth="2.5" strokeLinecap="round" />
       <circle cx="23" cy="21" r="2.5" className="fill-primary-foreground/60" />
     </svg>
-  );
-}
-
-function ThemeToggle() {
-  const { theme, setTheme } = useTheme();
-  const Icon = theme === "light" ? Sun : theme === "dark" ? Moon : Monitor;
-  const next = NEXT_THEME[theme];
-
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setTheme(next)}
-          aria-label={`Theme: ${THEME_LABEL[theme]}. Switch to ${THEME_LABEL[next]}`}
-        >
-          <Icon />
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>Theme: {THEME_LABEL[theme]}</TooltipContent>
-    </Tooltip>
   );
 }
 
@@ -60,7 +32,7 @@ export function SiteHeader() {
               </svg>
             </a>
           </Button>
-          <ThemeToggle />
+          <ThemeMenu />
         </div>
       </div>
     </header>

@@ -7,7 +7,10 @@ model, and you get a short summary back (a TL;DR plus key points).
 
 ## Features
 
-- **Clean, responsive UI**: React + TypeScript, Tailwind CSS and shadcn/ui components, light / dark / system theme
+- **Clean, responsive UI**: React + TypeScript, Tailwind CSS and shadcn/ui components
+- **Themes**: light / dark / system mode plus shadcn's color themes (Neutral, Zinc, Stone, Slate, Gray
+  and Blue, Green, Orange, Rose, Red, Yellow, Violet accents) from the palette button in the header.
+  Neutral is the default. Your choice is remembered in the browser
 - **Every state handled**: loading steps with a cancel button, specific error messages
   (site blocked, page not found, not a web page, JavaScript-only page, rate limits...) with
   "Try again" / "Edit URL" actions, an offline banner, and a banner when the server is down or has no AI key
@@ -21,7 +24,7 @@ model, and you get a short summary back (a TL;DR plus key points).
 
 | Part      | Tech |
 |-----------|------|
-| Frontend  | React 19 + TypeScript, Vite, Tailwind CSS v4, shadcn/ui (Radix), lucide icons, sonner toasts |
+| Frontend  | React 19 + TypeScript, Vite, Tailwind CSS v4, shadcn/ui (Radix) with its color themes, lucide icons, sonner toasts |
 | Backend   | Python, Django 5.2 + Django REST Framework |
 | Scraping  | `httpx` to download the page, `BeautifulSoup` to pull out the text |
 | AI        | Google Gemini (`gemini-flash-latest`, `gemini-flash-lite-latest`) with Groq (`llama-3.3-70b-versatile`, `llama-3.1-8b-instant`) as fallback, all free tiers |
