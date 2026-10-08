@@ -10,7 +10,7 @@ from rest_framework.views import APIView
 from .serializers import CancelRequestSerializer, SummarizeRequestSerializer, SummarySerializer
 from . import cancellation, quota
 from .exceptions import AIError, Cancelled
-from .services.ai import available_models, summarize
+from .services.ai import available_models, hidden_models, summarize
 from .services.scraper import scrape_page
 
 logger = logging.getLogger(__name__)
@@ -27,6 +27,7 @@ class HealthView(APIView):
             "providers": sorted({m["provider"] for m in models}),
             "models": [m["model"] for m in models],
             "model_options": models,
+            "hidden_models": hidden_models(),
             "usage": quota.usage(request),
             "limits": {
                 "max_url_length": settings.SCRAPER_MAX_URL_LENGTH,

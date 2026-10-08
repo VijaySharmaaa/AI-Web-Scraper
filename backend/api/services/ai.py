@@ -143,7 +143,11 @@ def model_label(model):
     labels = cache.get("model-labels") or {}
     if model in labels:
         return labels[model]
-    words = model.replace("-preview", "").split("-")
+    words = []
+    for word in model.split("-"):
+        if word in VERSION_WORDS or (word.isdigit() and len(word) >= 3):
+            break
+        words.append(word)
     return " ".join(w if any(c.isdigit() for c in w) and len(w) > 2 and not w[0].isdigit() else w.capitalize() for w in words)
 
 
@@ -153,14 +157,58 @@ def remember_labels(labels):
     cache.set("model-labels", known, settings.MODEL_CHECK_CACHE_SECONDS)
 
 
+VERSION_WORDS = {"preview", "exp", "latest", "stable"}
+OTHER_KIND_WORDS = {"lite", "tts", "image", "live", "audio", "native", "embedding", "transcribe", "computer", "omni"}
+
+
+def is_version_of(name, candidate):
+    if not candidate.startswith(f"{name}-"):
+        return False
+    words = candidate[len(name) + 1:].split("-")
+    if OTHER_KIND_WORDS & set(words):
+        return False
+    return words[0] in VERSION_WORDS or words[0].isdigit()
+
+
+def pick_version(candidates):
+    def rank(model):
+        unstable = any(w in model for w in ("preview", "exp"))
+        return (unstable, [-int(p) if p.isdigit() else 0 for p in model.split("-")])
+
+    return sorted(candidates, key=rank)[0]
+
+
 def resolve_models(configured, available):
     resolved = []
     for name in configured:
-        for candidate in (name, f"{name}-preview"):
-            if candidate in available and candidate not in resolved:
-                resolved.append(candidate)
-                break
+        if name in available:
+            match = name
+        else:
+            versions = [m for m in available if is_version_of(name, m)]
+            match = pick_version(versions) if versions else None
+        if match and match not in resolved:
+            resolved.append(match)
     return resolved
+
+
+def fetch_gemini_models(api_key):
+    response = send(
+        "GET",
+        settings.GEMINI_LIST_MODELS_URL,
+        params={"pageSize": 1000},
+        headers={"x-goog-api-key": api_key},
+        timeout=settings.AI_CONNECT_TIMEOUT,
+    )
+    response.raise_for_status()
+    return {
+        m.get("name", "").removeprefix("models/"): m.get("displayName") or ""
+        for m in response.json().get("models", [])
+        if "generateContent" in m.get("supportedGenerationMethods", [])
+    }
+
+
+def hidden_models():
+    return cache.get("gemini-hidden-models") or []
 
 
 def gemini_models_for_key(api_key):
@@ -175,27 +223,17 @@ def gemini_models_for_key(api_key):
         return cached
 
     try:
-        response = send(
-            "GET",
-            settings.GEMINI_LIST_MODELS_URL,
-            params={"pageSize": 1000},
-            headers={"x-goog-api-key": api_key},
-            timeout=settings.AI_CONNECT_TIMEOUT,
-        )
-        response.raise_for_status()
-        available = {
-            m.get("name", "").removeprefix("models/"): m.get("displayName") or ""
-            for m in response.json().get("models", [])
-            if "generateContent" in m.get("supportedGenerationMethods", [])
-        }
+        available = fetch_gemini_models(api_key)
     except (httpx.HTTPError, ValueError) as e:
         logger.warning("Could not check which Gemini models exist, using the configured list: %r", e)
         return configured
 
     models = resolve_models(configured, available)
-    missing = [m for m in configured if m not in models and f"{m}-preview" not in models]
+    missing = [m for m in configured if not any(r == m or is_version_of(m, r) for r in models)]
     if missing:
         logger.warning("Gemini models not available for this key, hiding them: %s", ", ".join(missing))
+        logger.info("Run 'python manage.py gemini_models' to see the exact model ids your key can use")
+    cache.set("gemini-hidden-models", missing, settings.MODEL_CHECK_CACHE_SECONDS)
     remember_labels({m: available[m] for m in models if available[m]})
     cache.set(cache_key, models, settings.MODEL_CHECK_CACHE_SECONDS)
     return models

@@ -165,6 +165,17 @@ npm run dev
 Open <http://localhost:5173>. Vite forwards every `/api/...` request to the Django server on
 port 8000 (see `vite.config.ts`), so both need to be running.
 
+### Checking which Gemini models your key can use
+
+```bash
+cd backend
+python manage.py gemini_models
+```
+
+This lists every text model your `GEMINI_API_KEY` can use and which of the configured ones the app
+shows. Models that don't exist for your key are hidden from the picker automatically (the picker
+names them at the bottom). To use different ids, set `GEMINI_MODELS` in `backend/.env` and restart.
+
 ### Running the tests
 
 ```bash

@@ -26,6 +26,7 @@ export interface HealthResponse {
   providers: string[];
   models: string[];
   model_options?: ModelOption[];
+  hidden_models?: string[];
   usage?: Usage | null;
   limits?: { max_url_length: number; summaries_per_day: number | null };
   examples?: ExampleLink[];

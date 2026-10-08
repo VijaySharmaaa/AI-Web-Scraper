@@ -22,6 +22,7 @@ interface Props {
   model: string;
   onModelChange: (model: string) => void;
   modelOptions: ModelOption[];
+  hiddenModels?: string[];
   examples: ExampleLink[];
   maxUrlLength?: number;
   usage?: Usage | null;
@@ -38,6 +39,7 @@ export function UrlForm({
   model,
   onModelChange,
   modelOptions,
+  hiddenModels,
   examples,
   maxUrlLength,
   usage,
@@ -147,7 +149,13 @@ export function UrlForm({
         <div className="flex items-center justify-between gap-2 px-2 pb-2">
           <div className="flex min-w-0 items-center gap-0.5">
             {modelOptions.length > 0 && (
-              <ModelSelect value={model} onChange={onModelChange} options={modelOptions} disabled={loading} />
+              <ModelSelect
+                value={model}
+                onChange={onModelChange}
+                options={modelOptions}
+                hidden={hiddenModels}
+                disabled={loading}
+              />
             )}
             {usage && <UsageRing usage={usage} />}
           </div>

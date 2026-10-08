@@ -101,6 +101,17 @@ describe("model picker", () => {
     expect(screen.getByText("Groq")).toBeInTheDocument();
   });
 
+  it("tells the user which models the server hid", async () => {
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const body = String(input).includes("health") ? { ...HEALTH, hidden_models: ["gemini-3.6-flash"] } : RESULT;
+      return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
+    });
+    const user = userEvent.setup();
+    renderApp();
+    await user.click(await screen.findByRole("combobox", { name: "AI model" }));
+    expect(await screen.findByText(/Not available for this API key: gemini-3.6-flash/)).toBeInTheDocument();
+  });
+
   it("goes back to Auto when a saved model isn't offered anymore", async () => {
     localStorage.setItem("ai-model", "old-model-that-was-removed");
     renderApp();

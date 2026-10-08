@@ -569,6 +569,11 @@ class GeminiModelCheckTests(SimpleTestCase):
             names = [m["model"] for m in ai.available_models()]
         self.assertEqual(names, ["gemini-a", "gemini-gone", "gemini-b"])
 
+    def test_health_lists_hidden_models(self):
+        with patch("api.services.ai.send", return_value=self.models_response()):
+            data = APIClient().get("/api/health/").json()
+        self.assertEqual(data["hidden_models"], ["gemini-gone"])
+
     def test_uses_googles_display_names(self):
         with patch("api.services.ai.send", return_value=self.models_response()):
             labels = {m["model"]: m["label"] for m in ai.available_models()}
@@ -683,6 +688,30 @@ class ModelNameTests(SimpleTestCase):
         available = {"gemini-3.8-flash": "", "gemini-3-flash-preview": "", "gemini-2.5-flash": ""}
         resolved = ai.resolve_models(["gemini-3.8-flash", "gemini-3-flash", "gemini-9-flash"], available)
         self.assertEqual(resolved, ["gemini-3.8-flash", "gemini-3-flash-preview"])
+
+    def test_versioned_ids_are_matched_without_mixing_up_lite(self):
+        available = {
+            "gemini-3.7-flash-preview-09-2026": "",
+            "gemini-3.7-flash-lite-preview-09-2026": "",
+            "gemini-3.6-flash-001": "",
+            "gemini-3.6-flash-preview-05-2026": "",
+            "gemini-3.5-flash-image": "",
+            "gemini-3.5-flash-lite": "",
+        }
+        resolved = ai.resolve_models(
+            ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.7-flash-lite"],
+            available,
+        )
+        self.assertEqual(resolved, [
+            "gemini-3.7-flash-preview-09-2026",
+            "gemini-3.6-flash-001",
+            "gemini-3.5-flash-lite",
+            "gemini-3.7-flash-lite-preview-09-2026",
+        ])
+
+    def test_labels_drop_version_parts(self):
+        self.assertEqual(ai.model_label("gemini-3.7-flash-preview-09-2026"), "Gemini 3.7 Flash")
+        self.assertEqual(ai.model_label("gemini-3.6-flash-001"), "Gemini 3.6 Flash")
 
     def test_default_models_are_the_free_text_ones(self):
         self.assertIn("gemini-3.8-flash", settings.GEMINI_MODELS)

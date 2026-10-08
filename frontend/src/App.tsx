@@ -249,6 +249,7 @@ export default function App() {
               model={model}
               onModelChange={changeModel}
               modelOptions={modelOptions}
+              hiddenModels={health.status === "ok" ? health.data.hidden_models : []}
               examples={health.status === "ok" ? health.data.examples ?? [] : []}
               maxUrlLength={health.status === "ok" ? health.data.limits?.max_url_length : undefined}
               usage={usage}

@@ -17,10 +17,11 @@ interface Props {
   value: string;
   onChange: (model: string) => void;
   options: ModelOption[];
+  hidden?: string[];
   disabled?: boolean;
 }
 
-export function ModelSelect({ value, onChange, options, disabled }: Props) {
+export function ModelSelect({ value, onChange, options, hidden = [], disabled }: Props) {
   const current = value === AUTO || options.some((o) => o.model === value) ? value : AUTO;
 
   const groups = new Map<string, ModelOption[]>();
@@ -56,6 +57,14 @@ export function ModelSelect({ value, onChange, options, disabled }: Props) {
             ))}
           </SelectGroup>
         ))}
+        {hidden.length > 0 && (
+          <>
+            <SelectSeparator />
+            <p className="max-w-64 px-2 py-1.5 text-xs text-muted-foreground">
+              Not available for this API key: {hidden.join(", ")}
+            </p>
+          </>
+        )}
       </SelectContent>
     </Select>
   );
