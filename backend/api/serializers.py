@@ -39,6 +39,7 @@ class CancelRequestSerializer(serializers.Serializer):
 
 class SummarySerializer(serializers.Serializer):
     title = serializers.CharField()
+    kind = serializers.CharField()
     requested_model = serializers.CharField(allow_null=True)
     url = serializers.URLField()
     summary = serializers.CharField()

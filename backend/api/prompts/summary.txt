@@ -12,3 +12,6 @@ a label in front of it.
 
 Use only information from the page. Ignore menus, cookie banners and ads.
 Write in the same language as the page.
+
+If you are given an image instead of page text, describe what it shows and
+summarize any text in it, using the same format.

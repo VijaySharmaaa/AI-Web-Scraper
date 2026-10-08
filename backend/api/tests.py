@@ -11,11 +11,13 @@ from rest_framework.test import APIClient
 from rest_framework.throttling import ScopedRateThrottle
 
 from .exceptions import AIError, Cancelled, ScrapeError
-from .services import ai, scraper
+from .services import ai, browser, extractors, scraper
 from .services.scraper import extract_text, scrape_page
 
 FAKE_PAGE = {
     "title": "Test page",
+    "kind": "html",
+    "image": None,
     "url": "https://example.com/",
     "text": "hello world " * 20,
     "char_count": 240,
@@ -44,6 +46,7 @@ def fake_dns(mapping_):
         ip = mapping[host]
         family = socket.AF_INET6 if ":" in ip else socket.AF_INET
         return [(family, socket.SOCK_STREAM, 6, "", (ip, 0))]
+
     return patch("api.services.scraper.socket.getaddrinfo", side_effect=getaddrinfo)
 
 
@@ -70,6 +73,7 @@ def html_response(body=ARTICLE_HTML, status=200, content_type="text/html; charse
     return httpx.Response(status, content=body, headers={"content-type": content_type, **kw.pop("headers", {})}, **kw)
 
 
+@override_settings(SCRAPER_BROWSER="off")
 class ExtractTextTests(SimpleTestCase):
     def test_removes_nav_and_scripts(self):
         title, text = extract_text(ARTICLE_HTML)
@@ -95,20 +99,36 @@ class ExtractTextTests(SimpleTestCase):
         self.assertIn("Some text in a div.", text)
 
 
+@override_settings(SCRAPER_BROWSER="off")
 class UrlSafetyTests(SimpleTestCase):
     def assert_blocked(self, url, dns=None):
         with fake_dns(dns or {}), self.assertRaises(ScrapeError):
             scrape_page(url)
 
     def test_blocks_private_and_local_addresses(self):
-        for ip in ["127.0.0.1", "10.0.0.5", "192.168.1.1", "172.16.0.1", "169.254.169.254",
-                   "0.0.0.0", "100.64.0.1", "::1", "fd00::1", "::ffff:127.0.0.1"]:
+        for ip in [
+            "127.0.0.1",
+            "10.0.0.5",
+            "192.168.1.1",
+            "172.16.0.1",
+            "169.254.169.254",
+            "0.0.0.0",
+            "100.64.0.1",
+            "::1",
+            "fd00::1",
+            "::ffff:127.0.0.1",
+        ]:
             with self.subTest(ip=ip):
                 self.assert_blocked("http://evil.test/", {"evil.test": ip})
 
     def test_blocks_bad_schemes_ports_and_credentials(self):
-        for url in ["ftp://example.com/", "file:///etc/passwd", "http://user:pass@example.com/",
-                    "http://example.com:22/", "http://example.com:6379/"]:
+        for url in [
+            "ftp://example.com/",
+            "file:///etc/passwd",
+            "http://user:pass@example.com/",
+            "http://example.com:22/",
+            "http://example.com:6379/",
+        ]:
             with self.subTest(url=url):
                 self.assert_blocked(url, {"example.com": PUBLIC_IP})
 
@@ -164,16 +184,22 @@ class UrlSafetyTests(SimpleTestCase):
         self.assertIn("keeps redirecting", str(ctx.exception.detail))
 
 
+@override_settings(SCRAPER_BROWSER="off")
 class FetchErrorTests(SimpleTestCase):
     def scrape_with(self, response):
         with fake_dns({"example.com": PUBLIC_IP}), fake_site(lambda r: response):
             return scrape_page("https://example.com/")
 
-    def test_non_html_is_rejected(self):
+    def test_video_is_not_supported(self):
         with self.assertRaises(ScrapeError) as ctx:
-            self.scrape_with(html_response(b"%PDF", content_type="application/pdf"))
+            self.scrape_with(html_response(b"\x00\x00", content_type="video/mp4"))
         self.assertEqual(ctx.exception.status_code, 415)
-        self.assertEqual(ctx.exception.error_code, "not_html")
+        self.assertEqual(ctx.exception.error_code, "unsupported_type")
+
+    def test_broken_pdf(self):
+        with self.assertRaises(ScrapeError) as ctx:
+            self.scrape_with(html_response(b"%PDF-1.4 broken", content_type="application/pdf"))
+        self.assertEqual(ctx.exception.error_code, "bad_file")
 
     def test_http_errors_have_friendly_messages(self):
         for status, words in [(403, "doesn't allow"), (404, "doesn't exist"), (500, "had a problem")]:
@@ -260,8 +286,9 @@ class AIFallbackTests(SimpleTestCase):
         self.assertEqual(result["summary"], "second")
 
     def test_thought_parts_are_skipped(self):
-        resp = httpx.Response(200, json={"candidates": [{"content": {"parts": [
-            {"text": "thinking...", "thought": True}, {"text": "answer"}]}}]})
+        resp = httpx.Response(
+            200, json={"candidates": [{"content": {"parts": [{"text": "thinking...", "thought": True}, {"text": "answer"}]}}]}
+        )
         result, _ = self.run_with([resp])
         self.assertEqual(result["summary"], "answer")
 
@@ -377,6 +404,22 @@ class AIFallbackTests(SimpleTestCase):
 
 AI_RESULT = {"summary": "It works.", "provider": "Google Gemini", "model": "gem-a", "model_label": "Gem A"}
 
+
+def page_steps(page=None):
+    def steps(url, check_cancelled=None):
+        yield {"type": "page", "page": page or FAKE_PAGE}
+
+    return steps
+
+
+def page_raises(error):
+    def steps(url, check_cancelled=None):
+        raise error
+        yield
+
+    return steps
+
+
 class Reply:
     def __init__(self, res):
         self.res = res
@@ -404,6 +447,7 @@ def ai_steps(result=None):
     def steps(page, preferred_model=None, check_cancelled=None):
         yield {"type": "model", "provider": "Google Gemini", "model": "gem-a", "label": "Gem A"}
         yield {"type": "done", "result": result or AI_RESULT}
+
     return steps
 
 
@@ -411,8 +455,8 @@ def ai_raises(error):
     def steps(page, preferred_model=None, check_cancelled=None):
         raise error
         yield
-    return steps
 
+    return steps
 
 
 @override_settings(GEMINI_CHECK_MODELS=False)
@@ -466,7 +510,7 @@ class SummarizeApiTests(SimpleTestCase):
         self.assertEqual(res.json()["error"], "API endpoint not found")
 
     @patch("api.views.summarize_steps", side_effect=ai_steps())
-    @patch("api.views.scrape_page", return_value=FAKE_PAGE)
+    @patch("api.views.scrape_steps", side_effect=page_steps())
     def test_success(self, mock_scrape, mock_ai):
         res = self.post({"url": "example.com"})
         self.assertEqual(res.status_code, 200)
@@ -478,7 +522,7 @@ class SummarizeApiTests(SimpleTestCase):
         mock_scrape.assert_called_once_with("https://example.com", ANY)
         self.assertEqual(res["Cache-Control"], "no-store")
 
-    @patch("api.views.scrape_page", side_effect=RuntimeError("boom"))
+    @patch("api.views.scrape_steps", side_effect=page_raises(RuntimeError("boom")))
     def test_unexpected_crash_is_json(self, _):
         res = self.post({"url": "https://example.com"})
         self.assertEqual(res.status_code, 500)
@@ -486,7 +530,7 @@ class SummarizeApiTests(SimpleTestCase):
 
     @patch.object(ScopedRateThrottle, "THROTTLE_RATES", {"summarize": "2/min", "anon": "100/min"})
     @patch("api.views.summarize_steps", side_effect=ai_steps())
-    @patch("api.views.scrape_page", return_value=FAKE_PAGE)
+    @patch("api.views.scrape_steps", side_effect=page_steps())
     def test_rate_limit(self, *_):
         codes = [self.post({"url": "https://example.com"}).status_code for _ in range(2)]
         res = self.post({"url": "https://example.com"})
@@ -498,7 +542,7 @@ class SummarizeApiTests(SimpleTestCase):
     @override_settings(GEMINI_MODELS=["gem-a", "gem-b"])
     @patch.dict("os.environ", {"GEMINI_API_KEY": "k", "GROQ_API_KEY": ""})
     @patch("api.views.summarize_steps", side_effect=ai_steps())
-    @patch("api.views.scrape_page", return_value=FAKE_PAGE)
+    @patch("api.views.scrape_steps", side_effect=page_steps())
     def test_chosen_model_is_passed_on(self, mock_scrape, mock_ai):
         res = self.post({"url": "https://example.com", "model": "gem-b"})
         self.assertEqual(res.status_code, 200)
@@ -507,7 +551,7 @@ class SummarizeApiTests(SimpleTestCase):
 
     @override_settings(GEMINI_MODELS=["gem-a"])
     @patch.dict("os.environ", {"GEMINI_API_KEY": "k", "GROQ_API_KEY": ""})
-    @patch("api.views.scrape_page", return_value=FAKE_PAGE)
+    @patch("api.views.scrape_steps", side_effect=page_steps())
     def test_unknown_model_is_rejected_before_scraping(self, mock_scrape):
         res = self.post({"url": "https://example.com", "model": "gpt-5"})
         self.assertEqual(res.status_code, 400)
@@ -519,7 +563,7 @@ class SummarizeApiTests(SimpleTestCase):
         self.assertEqual(res.status_code, 400)
 
     @patch("api.views.summarize_steps", side_effect=ai_steps())
-    @patch("api.views.scrape_page", return_value=FAKE_PAGE)
+    @patch("api.views.scrape_steps", side_effect=page_steps())
     def test_empty_model_means_auto(self, mock_scrape, mock_ai):
         res = self.post({"url": "https://example.com", "model": ""})
         self.assertEqual(res.status_code, 200)
@@ -559,7 +603,7 @@ class DailyQuotaTests(SimpleTestCase):
         return Reply(self.client.post("/api/summarize/", {"url": "https://example.com"}, format="json"))
 
     @patch("api.views.summarize_steps", side_effect=ai_steps())
-    @patch("api.views.scrape_page", return_value=FAKE_PAGE)
+    @patch("api.views.scrape_steps", side_effect=page_steps())
     def test_three_per_day(self, *_):
         results = [self.post() for _ in range(3)]
         self.assertEqual([r.status_code for r in results], [200, 200, 200])
@@ -573,7 +617,7 @@ class DailyQuotaTests(SimpleTestCase):
         self.assertGreater(data["retry_after"], 0)
         self.assertEqual(res["Retry-After"], str(data["retry_after"]))
 
-    @patch("api.views.scrape_page", side_effect=ScrapeError("blocked", 422, "site_blocked"))
+    @patch("api.views.scrape_steps", side_effect=page_raises(ScrapeError("blocked", 422, "site_blocked")))
     def test_failed_scrapes_dont_count(self, _):
         for _ in range(5):
             self.assertEqual(self.post().status_code, 422)
@@ -581,7 +625,7 @@ class DailyQuotaTests(SimpleTestCase):
         self.assertEqual(usage["used"], 0)
 
     @patch("api.views.summarize_steps", side_effect=ai_raises(AIError("all failed", 502, "ai_failed")))
-    @patch("api.views.scrape_page", return_value=FAKE_PAGE)
+    @patch("api.views.scrape_steps", side_effect=page_steps())
     def test_failed_ai_doesnt_count(self, *_):
         self.post()
         self.assertEqual(self.client.get("/api/health/").json()["usage"]["remaining"], 3)
@@ -591,7 +635,7 @@ class DailyQuotaTests(SimpleTestCase):
         self.assertEqual(self.client.get("/api/health/").json()["usage"]["used"], 0)
 
     @patch("api.views.summarize_steps", side_effect=ai_steps())
-    @patch("api.views.scrape_page", return_value=FAKE_PAGE)
+    @patch("api.views.scrape_steps", side_effect=page_steps())
     def test_each_ip_has_its_own_quota(self, *_):
         for _ in range(3):
             self.post()
@@ -600,7 +644,7 @@ class DailyQuotaTests(SimpleTestCase):
         self.assertEqual(res.status_code, 200)
 
     @patch("api.views.summarize_steps", side_effect=ai_steps())
-    @patch("api.views.scrape_page", return_value=FAKE_PAGE)
+    @patch("api.views.scrape_steps", side_effect=page_steps())
     def test_new_day_resets(self, *_):
         from datetime import datetime, timezone
 
@@ -628,6 +672,7 @@ class NoQuotaTests(SimpleTestCase):
         self.assertTrue(all("label" in e and "url" in e for e in data["examples"]))
 
 
+@override_settings(SCRAPER_BROWSER="off")
 class SettingsTests(SimpleTestCase):
     @override_settings(SCRAPER_MAX_TEXT_CHARS=100)
     def test_text_limit_comes_from_settings(self):
@@ -649,11 +694,17 @@ class GeminiModelCheckTests(SimpleTestCase):
         cache.clear()
 
     def models_response(self):
-        return httpx.Response(200, json={"models": [
-            {"name": "models/gemini-a", "displayName": "Gemini A", "supportedGenerationMethods": ["generateContent"]},
-            {"name": "models/gemini-b", "supportedGenerationMethods": ["generateContent", "countTokens"]},
-            {"name": "models/embedding-x", "supportedGenerationMethods": ["embedContent"]},
-        ]}, request=httpx.Request("GET", "https://example.test"))
+        return httpx.Response(
+            200,
+            json={
+                "models": [
+                    {"name": "models/gemini-a", "displayName": "Gemini A", "supportedGenerationMethods": ["generateContent"]},
+                    {"name": "models/gemini-b", "supportedGenerationMethods": ["generateContent", "countTokens"]},
+                    {"name": "models/embedding-x", "supportedGenerationMethods": ["embedContent"]},
+                ]
+            },
+            request=httpx.Request("GET", "https://example.test"),
+        )
 
     def test_hides_models_the_key_cant_use(self):
         with patch("api.services.ai.send", return_value=self.models_response()):
@@ -726,7 +777,7 @@ class CancelTests(SimpleTestCase):
         return self.client.get("/api/health/").json()["usage"]["used"]
 
     @patch("api.views.summarize_steps", side_effect=ai_steps())
-    @patch("api.views.scrape_page", return_value=FAKE_PAGE)
+    @patch("api.views.scrape_steps", side_effect=page_steps())
     def test_cancel_before_start_stops_everything(self, mock_scrape, mock_ai):
         self.assertEqual(self.cancel().status_code, 202)
         res = self.summarize()
@@ -736,7 +787,7 @@ class CancelTests(SimpleTestCase):
         mock_ai.assert_not_called()
         self.assertEqual(self.used(), 0)
 
-    @patch("api.views.scrape_page", return_value=FAKE_PAGE)
+    @patch("api.views.scrape_steps", side_effect=page_steps())
     def test_cancel_during_ai_skips_remaining_models(self, _):
         calls = []
 
@@ -753,7 +804,7 @@ class CancelTests(SimpleTestCase):
         self.assertEqual(calls, ["first model"])
         self.assertEqual(self.used(), 0)
 
-    @patch("api.views.scrape_page", return_value=FAKE_PAGE)
+    @patch("api.views.scrape_steps", side_effect=page_steps())
     def test_cancel_after_ai_answered_still_refunds(self, _):
         def fake_steps(page, preferred_model=None, check_cancelled=None):
             self.cancel()
@@ -776,13 +827,13 @@ class CancelTests(SimpleTestCase):
             scrape_page("https://example.com/", check)
 
     @patch("api.views.summarize_steps", side_effect=ai_steps())
-    @patch("api.views.scrape_page", return_value=FAKE_PAGE)
+    @patch("api.views.scrape_steps", side_effect=page_steps())
     def test_other_visitors_cant_cancel_your_request(self, *_):
         self.cancel(client=APIClient(REMOTE_ADDR="10.1.1.1"))
         self.assertEqual(self.summarize().status_code, 200)
 
     @patch("api.views.summarize_steps", side_effect=ai_steps())
-    @patch("api.views.scrape_page", return_value=FAKE_PAGE)
+    @patch("api.views.scrape_steps", side_effect=page_steps())
     def test_cancelling_a_different_request_does_nothing(self, *_):
         self.cancel("other-request-1")
         self.assertEqual(self.summarize().status_code, 200)
@@ -826,12 +877,15 @@ class ModelNameTests(SimpleTestCase):
             ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.7-flash-lite"],
             available,
         )
-        self.assertEqual(resolved, [
-            "gemini-3.7-flash-preview-09-2026",
-            "gemini-3.6-flash-001",
-            "gemini-3.5-flash-lite",
-            "gemini-3.7-flash-lite-preview-09-2026",
-        ])
+        self.assertEqual(
+            resolved,
+            [
+                "gemini-3.7-flash-preview-09-2026",
+                "gemini-3.6-flash-001",
+                "gemini-3.5-flash-lite",
+                "gemini-3.7-flash-lite-preview-09-2026",
+            ],
+        )
 
     def test_labels_drop_version_parts(self):
         self.assertEqual(ai.model_label("gemini-3.7-flash-preview-09-2026"), "Gemini 3.7 Flash")
@@ -851,7 +905,7 @@ class StreamTests(SimpleTestCase):
             p.start()
             self.addCleanup(p.stop)
 
-    @patch("api.views.scrape_page", return_value=FAKE_PAGE)
+    @patch("api.views.scrape_steps", side_effect=page_steps())
     def test_progress_events_then_result(self, _):
         def steps(page, preferred_model=None, check_cancelled=None):
             yield {"type": "model", "provider": "Google Gemini", "model": "gem-a", "label": "Gem A"}
@@ -875,7 +929,7 @@ class StreamTests(SimpleTestCase):
         self.assertNotIn("failed_attempts", reply.json())
 
     @override_settings(SUMMARIES_PER_DAY=3)
-    @patch("api.views.scrape_page", return_value=FAKE_PAGE)
+    @patch("api.views.scrape_steps", side_effect=page_steps())
     def test_leaving_mid_stream_gives_the_try_back(self, _):
         with patch("api.views.summarize_steps", side_effect=ai_steps()):
             res = APIClient().post("/api/summarize/", {"url": "https://example.com"}, format="json")
@@ -890,8 +944,178 @@ class StreamTests(SimpleTestCase):
         self.assertEqual(res.status_code, 400)
         self.assertEqual(res.json()["code"], "private_address")
 
-    @patch("api.views.scrape_page", side_effect=ScrapeError("This website blocked our request", 422, "site_blocked"))
+    @patch("api.views.scrape_steps", side_effect=page_raises(ScrapeError("This website blocked us", 422, "site_blocked")))
     def test_errors_during_the_stream(self, _):
         reply = Reply(APIClient().post("/api/summarize/", {"url": "https://example.com"}, format="json"))
         self.assertEqual(reply.status_code, 422)
         self.assertEqual(reply.json()["code"], "site_blocked")
+
+
+def make_pdf(lines):
+    content = "BT /F1 12 Tf 72 720 Td 14 TL " + " ".join(f"({line}) Tj T*" for line in lines) + " ET"
+    objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+        f"<< /Length {len(content)} >>\nstream\n{content}\nendstream",
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    out = "%PDF-1.4\n"
+    offsets = []
+    for number, obj in enumerate(objects, 1):
+        offsets.append(len(out))
+        out += f"{number} 0 obj\n{obj}\nendobj\n"
+    xref = len(out)
+    out += f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n"
+    out += "".join(f"{offset:010d} 00000 n \n" for offset in offsets)
+    out += f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n"
+    return out.encode()
+
+
+def make_docx(paragraphs):
+    import io
+
+    from docx import Document
+
+    document = Document()
+    for text in paragraphs:
+        document.add_paragraph(text)
+    buffer = io.BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
+
+
+LONG_LINE = "This sentence is long enough to count as readable text for the scraper"
+
+
+@override_settings(SCRAPER_BROWSER="off")
+class ContentTypeTests(SimpleTestCase):
+    def scrape(self, body, content_type, path="/file"):
+        with fake_dns({"example.com": PUBLIC_IP}), fake_site(lambda r: html_response(body, content_type=content_type)):
+            return scrape_page(f"https://example.com{path}")
+
+    def test_pdf(self):
+        page = self.scrape(make_pdf([LONG_LINE, "Second line of the PDF document"]), "application/pdf", "/report.pdf")
+        self.assertEqual(page["kind"], "pdf")
+        self.assertIn("readable text", page["text"])
+        self.assertEqual(page["title"], "report.pdf")
+
+    def test_pdf_found_by_its_bytes(self):
+        page = self.scrape(make_pdf([LONG_LINE]), "application/octet-stream", "/download?id=7")
+        self.assertEqual(page["kind"], "pdf")
+
+    def test_word_document(self):
+        body = make_docx([LONG_LINE, "Another paragraph in the Word file."])
+        page = self.scrape(body, extractors.DOCX_TYPE, "/notes.docx")
+        self.assertEqual(page["kind"], "docx")
+        self.assertIn("Another paragraph", page["text"])
+
+    def test_plain_text_and_markdown(self):
+        for content_type in ("text/plain", "text/markdown"):
+            with self.subTest(content_type=content_type):
+                page = self.scrape(f"# Notes\n\n{LONG_LINE}.".encode(), content_type)
+                self.assertEqual(page["kind"], "text")
+                self.assertIn(LONG_LINE, page["text"])
+
+    def test_csv(self):
+        body = f"name,description\nwidget,{LONG_LINE}\n".encode()
+        page = self.scrape(body, "text/csv")
+        self.assertEqual(page["kind"], "csv")
+        self.assertIn("widget | This sentence", page["text"])
+
+    def test_json(self):
+        body = json.dumps({"items": [{"text": LONG_LINE}]}).encode()
+        page = self.scrape(body, "application/json")
+        self.assertEqual(page["kind"], "json")
+        self.assertIn(LONG_LINE, page["text"])
+
+    def test_rss_feed(self):
+        body = f"""<?xml version="1.0"?><rss><channel><title>My feed</title>
+        <item><title>First post</title><description>{LONG_LINE}</description></item>
+        </channel></rss>""".encode()
+        page = self.scrape(body, "application/rss+xml")
+        self.assertEqual(page["kind"], "xml")
+        self.assertEqual(page["title"], "My feed")
+        self.assertIn("First post - This sentence", page["text"])
+
+    def test_image(self):
+        png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+        page = self.scrape(png, "image/png", "/chart.png")
+        self.assertEqual(page["kind"], "image")
+        self.assertEqual(page["image"]["mime_type"], "image/png")
+        self.assertEqual(page["text"], "")
+
+    @override_settings(SCRAPER_MAX_IMAGE_BYTES=10)
+    def test_image_too_large(self):
+        with self.assertRaises(ScrapeError) as ctx:
+            self.scrape(b"\x89PNG" + b"\x00" * 100, "image/png")
+        self.assertEqual(ctx.exception.error_code, "file_too_large")
+
+    @override_settings(SCRAPER_MAX_DOWNLOAD_BYTES=100)
+    def test_cut_off_pdf_is_reported(self):
+        with self.assertRaises(ScrapeError) as ctx:
+            self.scrape(make_pdf([LONG_LINE] * 20), "application/pdf")
+        self.assertEqual(ctx.exception.error_code, "file_too_large")
+
+    def test_javascript_page_uses_its_built_in_data(self):
+        data = {"props": {"pageProps": {"post": {"body": LONG_LINE + ". It came from the page data."}}}}
+        body = (
+            '<html><head><title>App</title><meta name="description" content="A short description of this app page.">'
+            f'</head><body><div id="root"></div><script id="__NEXT_DATA__" type="application/json">{json.dumps(data)}'
+            "</script></body></html>"
+        ).encode()
+        page = self.scrape(body, "text/html")
+        self.assertIn("It came from the page data", page["text"])
+        self.assertIn("A short description", page["text"])
+
+    def test_json_ld_article(self):
+        article = {"@type": "Article", "headline": "Hi", "articleBody": LONG_LINE + " from structured data."}
+        body = (f'<html><body><script type="application/ld+json">{json.dumps(article)}</script></body></html>').encode()
+        page = self.scrape(body, "text/html")
+        self.assertIn("from structured data", page["text"])
+
+
+@override_settings(GEMINI_CHECK_MODELS=False, GEMINI_MODELS=["gem-a"], GROQ_MODELS=["llama-a"])
+@patch.dict("os.environ", {"GEMINI_API_KEY": "g", "GROQ_API_KEY": "q"})
+class ImageSummaryTests(SimpleTestCase):
+    def setUp(self):
+        cache.clear()
+
+    IMAGE_PAGE = {**FAKE_PAGE, "kind": "image", "text": "", "image": {"mime_type": "image/png", "data": "aGk="}}
+
+    def test_image_is_sent_to_gemini(self):
+        sent = {}
+
+        def fake_send(method, url, **kwargs):
+            sent.update(kwargs["json"])
+            return gemini_ok("It's a chart.")
+
+        with patch("api.services.ai.send", side_effect=fake_send):
+            result = ai.summarize(self.IMAGE_PAGE)
+        parts = sent["contents"][0]["parts"]
+        self.assertEqual(parts[1], {"inline_data": {"mime_type": "image/png", "data": "aGk="}})
+        self.assertEqual(result["model"], "gem-a")
+
+    def test_auto_never_sends_images_to_llama(self):
+        calls = []
+
+        def fake_send(method, url, **kwargs):
+            calls.append(url)
+            return httpx.Response(429)
+
+        with patch("api.services.ai.send", side_effect=fake_send), self.assertRaises(AIError):
+            ai.summarize(self.IMAGE_PAGE)
+        self.assertTrue(all("groq" not in url for url in calls))
+
+    def test_chosen_llama_explains_it_cant_read_images(self):
+        with self.assertRaises(AIError) as ctx:
+            ai.summarize(self.IMAGE_PAGE, preferred_model="llama-a")
+        self.assertEqual(ctx.exception.error_code, "model_cant_read_images")
+        self.assertIn("Gemini model or switch to Auto", str(ctx.exception.detail))
+
+
+class BrowserTests(SimpleTestCase):
+    @override_settings(SCRAPER_BROWSER="off")
+    def test_can_be_turned_off(self):
+        self.assertFalse(browser.available())
+        self.assertIsNone(browser.render("https://example.com/"))

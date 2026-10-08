@@ -50,19 +50,27 @@ const BY_CODE: Record<string, Preset> = {
     editUrl: true,
   },
   too_many_redirects: { title: "Too many redirects", tone: "warning", retryable: false, editUrl: true },
-  not_html: {
-    title: "That's not a web page",
+  unsupported_type: {
+    title: "Can't summarize this file",
     tone: "warning",
     retryable: false,
     editUrl: true,
-    hint: "PDFs, images and downloads can't be summarized.",
+    hint: "Web pages, PDFs, Word files, images, text, CSV, JSON and RSS work.",
+  },
+  file_too_large: { title: "That file is too large", tone: "warning", retryable: false, editUrl: true },
+  bad_file: { title: "Couldn't open that file", tone: "warning", retryable: false, editUrl: true },
+  model_cant_read_images: {
+    title: "This model can't read images",
+    tone: "warning",
+    retryable: false,
+    editUrl: false,
   },
   no_text: {
     title: "No readable text found",
     tone: "warning",
     retryable: false,
     editUrl: true,
-    hint: "It may load its text with JavaScript. Articles and docs work best.",
+    hint: "It may be behind a login or mostly images. Try another link."
   },
   model_busy: {
     title: "That model is busy",
@@ -135,7 +143,7 @@ export function describeError(err: unknown): ErrorInfo {
 
   if (status === 429) return { ...base, title: "Slow down a little", tone: "warning", retryable: true, editUrl: false };
   if (status === 400) return { ...base, title: "Check the URL", tone: "warning", retryable: false, editUrl: true };
-  if (status === 415) return { ...base, ...BY_CODE.not_html };
+  if (status === 415) return { ...base, ...BY_CODE.unsupported_type };
   if (status === 422) return { ...base, title: "Couldn't read this page", tone: "warning", retryable: false, editUrl: true };
   if (status === 503) return { ...base, title: "The server isn't set up yet", tone: "destructive", retryable: false, editUrl: false };
   if (status === 502 || status === 504) return { ...base, title: "Something didn't respond", tone: "warning", retryable: true, editUrl: false };

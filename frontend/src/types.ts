@@ -1,5 +1,8 @@
+export type ContentKind = "html" | "pdf" | "docx" | "image" | "json" | "xml" | "csv" | "text";
+
 export interface SummaryResponse {
   title: string;
+  kind?: ContentKind;
   requested_model?: string | null;
   url: string;
   summary: string;
@@ -54,6 +57,6 @@ export interface HistoryItem extends SummaryResponse {
 }
 
 export type Progress =
-  | { type: "step"; step: "fetching" | "reading"; title?: string }
+  | { type: "step"; step: "fetching" | "rendering" | "reading"; title?: string; kind?: ContentKind }
   | { type: "model"; provider: string; model: string; label: string }
   | { type: "model_switch"; from_label: string; reason: string; provider: string; model: string; label: string };

@@ -38,6 +38,8 @@ def http_client():
 
 def send(method, url, **kwargs):
     return http_client().request(method, url, **kwargs)
+
+
 BAD_KEY = "API key rejected"
 
 
@@ -57,12 +59,21 @@ def system_prompt():
     return read_prompt(settings.AI_PROMPT_FILE)
 
 
+def user_parts(page):
+    parts = [{"text": build_prompt(page)}]
+    if page.get("image"):
+        parts.append({"inline_data": page["image"]})
+    return parts
+
+
 def build_prompt(page):
-    return f"""Title: {page['title']}
-URL: {page['url']}
+    if page.get("image"):
+        return f"Title: {page['title']}\nURL: {page['url']}\n\nThe content is the attached image."
+    return f"""Title: {page["title"]}
+URL: {page["url"]}
 
 <page_text>
-{page['text']}
+{page["text"]}
 </page_text>"""
 
 
@@ -100,7 +111,7 @@ def post(url, timeout, **kwargs):
 def call_gemini(model, page, api_key, timeout):
     body = {
         "system_instruction": {"parts": [{"text": system_prompt()}]},
-        "contents": [{"role": "user", "parts": [{"text": build_prompt(page)}]}],
+        "contents": [{"role": "user", "parts": user_parts(page)}],
         "generationConfig": {
             "temperature": settings.AI_TEMPERATURE,
             "maxOutputTokens": settings.GEMINI_MAX_OUTPUT_TOKENS,
@@ -170,7 +181,7 @@ OTHER_KIND_WORDS = {"lite", "tts", "image", "live", "audio", "native", "embeddin
 def is_version_of(name, candidate):
     if not candidate.startswith(f"{name}-"):
         return False
-    words = candidate[len(name) + 1:].split("-")
+    words = candidate[len(name) + 1 :].split("-")
     if OTHER_KIND_WORDS & set(words):
         return False
     return words[0] in VERSION_WORDS or words[0].isdigit()
@@ -265,10 +276,7 @@ def configured_models():
 
 
 def available_models():
-    return [
-        {"provider": provider, "model": model, "label": model_label(model)}
-        for provider, model, *_ in configured_models()
-    ]
+    return [{"provider": provider, "model": model, "label": model_label(model)} for provider, model, *_ in configured_models()]
 
 
 def unavailable_models():
@@ -364,8 +372,23 @@ def model_chain(preferred_model=None):
     return chain
 
 
+def image_ready(chain, preferred_model):
+    readers = [c for c in chain if c[2] is call_gemini]
+    if readers:
+        return readers
+    if preferred_model:
+        raise AIError(
+            f"{model_label(preferred_model)} can't read images. Pick a Gemini model or switch to Auto.",
+            400,
+            "model_cant_read_images",
+        )
+    raise AIError("Images need a Gemini model, and none is set up on this server.", 503, "model_cant_read_images")
+
+
 def summarize_steps(page, preferred_model=None, check_cancelled=lambda: None):
     chain = model_chain(preferred_model)
+    if page.get("image"):
+        chain = image_ready(chain, preferred_model)
     if not preferred_model:
         chain = healthy_first(chain)
     attempts = []

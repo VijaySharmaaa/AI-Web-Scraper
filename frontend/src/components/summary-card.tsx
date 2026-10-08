@@ -13,13 +13,24 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { formatNumber, readingMinutes, tidySummary } from "@/lib/format";
 import { downloadSummaryPdf, fitsBuiltInFont, printSummary } from "@/lib/pdf";
 import { hostnameOf } from "@/lib/url";
-import type { SummaryResponse } from "@/types";
+import type { ContentKind, SummaryResponse } from "@/types";
 
 interface Props {
   result: SummaryResponse;
   onNew: () => void;
   fromHistory?: boolean;
 }
+
+const KIND_LABELS: Record<ContentKind, string> = {
+  html: "Web page",
+  pdf: "PDF",
+  docx: "Word",
+  image: "Image",
+  json: "JSON",
+  xml: "Feed",
+  csv: "CSV",
+  text: "Text",
+};
 
 const MARKDOWN_COMPONENTS: Components = {
   a: ({ href, children }) => (
@@ -78,6 +89,9 @@ export function SummaryCard({ result, onNew, fromHistory }: Props) {
       <CardHeader className="gap-2 border-b bg-muted/40 py-5">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <span className="truncate">{hostnameOf(result.url)}</span>
+          {result.kind && result.kind !== "html" && (
+            <Badge variant="outline" className="font-normal">{KIND_LABELS[result.kind]}</Badge>
+          )}
           {fromHistory && <Badge variant="outline" className="font-normal">From history</Badge>}
         </div>
         <h2 className="text-lg leading-snug font-semibold text-balance sm:text-xl">{result.title}</h2>
@@ -87,7 +101,7 @@ export function SummaryCard({ result, onNew, fromHistory }: Props) {
           rel="noopener noreferrer nofollow"
           className="inline-flex w-fit max-w-full items-center gap-1 text-sm text-primary hover:underline"
         >
-          <span className="truncate">Open original page</span>
+          <span className="truncate">{result.kind && result.kind !== "html" ? "Open original file" : "Open original page"}</span>
           <ExternalLink className="size-3.5 shrink-0" />
         </a>
       </CardHeader>

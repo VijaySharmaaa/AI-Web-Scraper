@@ -95,9 +95,7 @@ CACHES = {
 
 DATA_UPLOAD_MAX_MEMORY_SIZE = env_int("MAX_REQUEST_BODY_BYTES", 10 * 1024)
 
-CORS_ALLOWED_ORIGINS = env_list(
-    "CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173" if DEBUG else ""
-)
+CORS_ALLOWED_ORIGINS = env_list("CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173" if DEBUG else "")
 CORS_URLS_REGEX = r"^/api/.*$"
 CORS_ALLOW_METHODS = ["GET", "POST", "OPTIONS"]
 
@@ -126,7 +124,14 @@ CANCEL_FLAG_SECONDS = env_int("CANCEL_FLAG_SECONDS", 600)
 SCRAPER_MAX_URL_LENGTH = env_int("SCRAPER_MAX_URL_LENGTH", 2000)
 SCRAPER_MAX_TEXT_CHARS = env_int("SCRAPER_MAX_TEXT_CHARS", 15000)
 SCRAPER_MIN_TEXT_CHARS = env_int("SCRAPER_MIN_TEXT_CHARS", 50)
-SCRAPER_MAX_DOWNLOAD_BYTES = env_int("SCRAPER_MAX_DOWNLOAD_BYTES", 5 * 1024 * 1024)
+SCRAPER_MAX_DOWNLOAD_BYTES = env_int("SCRAPER_MAX_DOWNLOAD_BYTES", 20 * 1024 * 1024)
+SCRAPER_MAX_IMAGE_BYTES = env_int("SCRAPER_MAX_IMAGE_BYTES", 10 * 1024 * 1024)
+SCRAPER_MAX_PDF_PAGES = env_int("SCRAPER_MAX_PDF_PAGES", 60)
+SCRAPER_BROWSER = os.getenv("SCRAPER_BROWSER", "auto").strip().lower()
+SCRAPER_BROWSER_TIMEOUT = env_float("SCRAPER_BROWSER_TIMEOUT", 20)
+SCRAPER_BROWSER_EXECUTABLE = os.getenv("SCRAPER_BROWSER_EXECUTABLE", "").strip()
+SCRAPER_BROWSER_CONCURRENCY = env_int("SCRAPER_BROWSER_CONCURRENCY", 1)
+SCRAPER_BROWSER_MAX_REQUESTS = env_int("SCRAPER_BROWSER_MAX_REQUESTS", 150)
 SCRAPER_MAX_REDIRECTS = env_int("SCRAPER_MAX_REDIRECTS", 5)
 SCRAPER_ALLOWED_PORTS = [int(p) for p in env_list("SCRAPER_ALLOWED_PORTS", "80,443,8080,8443")]
 SCRAPER_TIMEOUT = env_float("SCRAPER_TIMEOUT", 15)
@@ -145,9 +150,7 @@ SCRAPER_IGNORED_TAGS = env_list(
     "script,style,noscript,iframe,svg,canvas,form,nav,header,footer,aside,button,template,dialog",
 )
 
-GEMINI_API_URL = os.getenv(
-    "GEMINI_API_URL", "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-)
+GEMINI_API_URL = os.getenv("GEMINI_API_URL", "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent")
 GROQ_API_URL = os.getenv("GROQ_API_URL", "https://api.groq.com/openai/v1/chat/completions")
 DEFAULT_GEMINI_MODELS = (
     "gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-3-flash,gemini-2.5-flash,"

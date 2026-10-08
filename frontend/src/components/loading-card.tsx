@@ -9,7 +9,7 @@ import { hostnameOf } from "@/lib/url";
 import { cn } from "@/lib/utils";
 
 export interface LoadingProgress {
-  step: "starting" | "fetching" | "reading" | "writing";
+  step: "starting" | "fetching" | "rendering" | "reading" | "writing";
   modelLabel?: string;
   note?: string;
 }
@@ -39,7 +39,8 @@ function StepIcon({ state, icon: Icon }: { state: "done" | "active" | "waiting";
 
 export function LoadingCard({ url, progress, onCancel }: { url: string; progress: LoadingProgress; onCancel: () => void }) {
   const elapsed = useElapsed();
-  const current = Math.max(0, ORDER.indexOf(progress.step === "starting" ? "fetching" : progress.step));
+  const activeStep = progress.step === "starting" ? "fetching" : progress.step === "rendering" ? "reading" : progress.step;
+  const current = Math.max(0, ORDER.indexOf(activeStep));
 
   const steps = [
     { icon: Globe, label: "Fetching the page" },
@@ -73,6 +74,11 @@ export function LoadingCard({ url, progress, onCancel }: { url: string; progress
                   <p className={cn(state === "waiting" && "text-muted-foreground", state === "active" && "font-medium")}>
                     {step.label}
                   </p>
+                  {i === 1 && progress.step === "rendering" && (
+                    <p className="text-xs text-muted-foreground animate-in fade-in-0 duration-300">
+                      This page needs JavaScript, opening it in a browser
+                    </p>
+                  )}
                   {i === 2 && progress.note && (
                     <p key={progress.note} className="text-xs text-muted-foreground animate-in fade-in-0 duration-300">
                       {progress.note}

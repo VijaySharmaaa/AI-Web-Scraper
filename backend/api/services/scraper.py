@@ -8,10 +8,10 @@ from urllib.parse import urlsplit, urlunsplit
 from urllib.request import getproxies, proxy_bypass
 
 import httpx
-from bs4 import BeautifulSoup
 from django.conf import settings
 
 from ..exceptions import ScrapeError
+from . import browser, extractors
 
 logger = logging.getLogger(__name__)
 
@@ -68,13 +68,14 @@ def uses_proxy(parts):
     return bool(proxies.get(parts.scheme) or proxies.get("all")) and not proxy_bypass(parts.hostname)
 
 
-def build_request(clients, url):
+def build_request(clients, url, method="GET", headers=None, content=None):
     parts = validate_url(url)
     ip = resolve_public_ip(parts.hostname)
+    headers = dict(headers or {})
 
     if uses_proxy(parts):
         client = clients["proxy"]
-        return client, client.build_request("GET", url)
+        return client, client.build_request(method, url, headers=headers, content=content)
 
     client = clients["direct"]
 
@@ -82,8 +83,8 @@ def build_request(clients, url):
     netloc = f"{ip_host}:{parts.port}" if parts.port else ip_host
     pinned_url = urlunsplit((parts.scheme, netloc, parts.path or "/", parts.query, ""))
 
-    host_header = parts.hostname if not parts.port else f"{parts.hostname}:{parts.port}"
-    request = client.build_request("GET", pinned_url, headers={"Host": host_header})
+    headers["Host"] = parts.hostname if not parts.port else f"{parts.hostname}:{parts.port}"
+    request = client.build_request(method, pinned_url, headers=headers, content=content)
     if parts.scheme == "https":
         request.extensions["sni_hostname"] = parts.hostname
     return client, request
@@ -93,8 +94,8 @@ def no_check():
     return None
 
 
-def read_limited(response, deadline, check_cancelled=no_check):
-    limit = settings.SCRAPER_MAX_DOWNLOAD_BYTES
+def read_limited(response, deadline, check_cancelled=no_check, limit=None):
+    limit = limit or settings.SCRAPER_MAX_DOWNLOAD_BYTES
     chunks = []
     total = 0
     for chunk in response.iter_bytes():
@@ -104,17 +105,16 @@ def read_limited(response, deadline, check_cancelled=no_check):
         room = limit - total
         if len(chunk) >= room:
             chunks.append(chunk[:room])
-            logger.debug("Page is bigger than %d bytes, cutting it off", limit)
-            break
+            logger.debug("Download is bigger than %d bytes, cutting it off", limit)
+            return b"".join(chunks), True
         chunks.append(chunk)
         total += len(chunk)
-    return b"".join(chunks)
+    return b"".join(chunks), False
 
 
 def check_response(response):
     status = response.status_code
-    content_type = response.headers.get("content-type", "").lower()
-    logger.debug("Got status=%s content-type=%s", status, content_type)
+    logger.debug("Got status=%s content-type=%s", status, response.headers.get("content-type", ""))
 
     if status in (401, 403):
         raise ScrapeError("This website doesn't allow automated reading.", 422, "site_blocked")
@@ -124,15 +124,13 @@ def check_response(response):
         raise ScrapeError("This website is limiting visits right now. Try again in a bit.", 422, "site_rate_limited")
     if status >= 400:
         raise ScrapeError("The website had a problem. Try again later.", 502, "site_error")
-    if content_type and "html" not in content_type:
-        raise ScrapeError("That link isn't a web page, so it can't be summarized.", 415, "not_html")
 
 
 def http_clients():
     options = {
         "headers": {
             "User-Agent": settings.SCRAPER_USER_AGENT,
-            "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.5",
+            "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.8",
         },
         "timeout": httpx.Timeout(settings.SCRAPER_TIMEOUT, connect=settings.SCRAPER_CONNECT_TIMEOUT),
@@ -144,7 +142,7 @@ def http_clients():
     return httpx.Client(trust_env=False, verify=verify, **options), httpx.Client(**options)
 
 
-def fetch_html(url, check_cancelled=no_check):
+def fetch(url, check_cancelled=no_check):
     logger.debug("Fetching %s", url)
     deadline = time.monotonic() + settings.SCRAPER_TOTAL_TIME_LIMIT
 
@@ -164,7 +162,14 @@ def fetch_html(url, check_cancelled=no_check):
                         logger.debug("Redirected to %s", url)
                         continue
                     check_response(response)
-                    return read_limited(response, deadline, check_cancelled), response.charset_encoding, url
+                    body, truncated = read_limited(response, deadline, check_cancelled)
+                    return {
+                        "body": body,
+                        "truncated": truncated,
+                        "content_type": response.headers.get("content-type", ""),
+                        "charset": response.charset_encoding,
+                        "url": url,
+                    }
                 finally:
                     response.close()
     except httpx.TimeoutException:
@@ -176,59 +181,113 @@ def fetch_html(url, check_cancelled=no_check):
     raise ScrapeError("That page keeps redirecting, so we couldn't open it.", 502, "too_many_redirects")
 
 
-def clean(text):
-    return " ".join(text.split())
+class SafeSession:
+    def __init__(self):
+        self.direct, self.proxy = http_clients()
+        self.clients = {"direct": self.direct, "proxy": self.proxy}
+
+    def request(self, method, url, headers=None, content=None, limit=None):
+        client, request = build_request(self.clients, url, method, headers, content)
+        response = client.send(request, stream=True)
+        try:
+            deadline = time.monotonic() + settings.SCRAPER_TIMEOUT
+            body, _ = read_limited(response, deadline, limit=limit)
+            return response.status_code, dict(response.headers), body
+        finally:
+            response.close()
+
+    def close(self):
+        self.direct.close()
+        self.proxy.close()
 
 
 def extract_text(html, encoding=None):
-    soup = BeautifulSoup(html, settings.SCRAPER_HTML_PARSER, from_encoding=encoding if isinstance(html, bytes) else None)
+    return extractors.html_text(html, encoding)
 
-    title = ""
-    og_title = soup.find("meta", property="og:title")
-    if og_title and og_title.get("content"):
-        title = clean(og_title["content"])
-    elif soup.title:
-        title = clean(soup.title.get_text())
 
-    for tag in soup(settings.SCRAPER_IGNORED_TAGS):
-        tag.decompose()
+def read_html(fetched, check_cancelled):
+    title, text = extractors.html_text(fetched["body"], fetched["charset"])
+    if len(text) >= settings.SCRAPER_MIN_TEXT_CHARS:
+        return "html", title, text
 
-    content = soup.find("article") or soup.find("main") or soup.body or soup
+    data_title, data_text = extractors.embedded_text(fetched["body"], fetched["charset"])
+    if len(data_text) > len(text):
+        logger.debug("Using the page's built-in data (%d chars)", len(data_text))
+        title, text = title or data_title, data_text
 
-    lines = []
-    seen = set()
-    for el in content.find_all(settings.SCRAPER_TEXT_TAGS):
-        text = clean(el.get_text(" "))
-        if len(text) > 1 and text not in seen:
-            seen.add(text)
-            lines.append(text)
-    text = "\n".join(lines)
+    if len(text) >= settings.SCRAPER_MIN_TEXT_CHARS * 4 or not browser.available():
+        return "html", title, text
 
-    if len(text) < settings.SCRAPER_FALLBACK_MIN_CHARS:
-        logger.debug("Not many text tags found, falling back to all text")
-        text = clean(content.get_text(" "))
+    yield {"type": "step", "step": "rendering"}
+    rendered = browser.render(fetched["url"], check_cancelled)
+    if rendered:
+        browser_title, browser_text = extractors.html_text(rendered)
+        if len(browser_text) > len(text):
+            return "html", browser_title or title, browser_text
+    return "html", title, text
 
-    return title[: settings.SCRAPER_MAX_TITLE_CHARS], text
+
+def too_large(kind):
+    limit = settings.SCRAPER_MAX_DOWNLOAD_BYTES // (1024 * 1024)
+    return ScrapeError(f"That {kind} is too large. The limit is {limit} MB.", 413, "file_too_large")
+
+
+def scrape_steps(url, check_cancelled=no_check):
+    fetched = fetch(url, check_cancelled)
+    kind = extractors.detect_kind(fetched["content_type"], fetched["url"], fetched["body"])
+    logger.debug("Content looks like %s", kind)
+    image = None
+
+    if kind == "html":
+        kind, title, text = yield from read_html(fetched, check_cancelled)
+    elif kind == "pdf":
+        if fetched["truncated"]:
+            raise too_large("PDF")
+        title, text = extractors.pdf_text(fetched["body"])
+    elif kind == "docx":
+        if fetched["truncated"]:
+            raise too_large("document")
+        title, text = extractors.docx_text(fetched["body"])
+    elif kind == "image":
+        if fetched["truncated"]:
+            raise too_large("image")
+        image = extractors.image_data(fetched["body"], fetched["content_type"])
+        title, text = "", ""
+    elif kind == "json":
+        title, text = extractors.json_text(fetched["body"], fetched["charset"])
+    elif kind == "csv":
+        title, text = extractors.csv_text(fetched["body"], fetched["charset"])
+    elif kind == "xml":
+        title, text = extractors.xml_text(fetched["body"])
+    elif kind == "text":
+        title, text = "", extractors.decode(fetched["body"], fetched["charset"])
+    elif kind == "media":
+        raise ScrapeError("Videos and audio can't be summarized yet. Try a web page, PDF or image.", 415, "unsupported_type")
+    else:
+        raise ScrapeError("This kind of file can't be summarized. Try a web page, PDF or document.", 415, "unsupported_type")
+
+    if image is None and len(text.strip()) < settings.SCRAPER_MIN_TEXT_CHARS:
+        raise ScrapeError("We couldn't find readable text there.", 422, "no_text")
+
+    text = text.strip()
+    limit = settings.SCRAPER_MAX_TEXT_CHARS
+    yield {
+        "type": "page",
+        "page": {
+            "title": title or extractors.file_name(fetched["url"]),
+            "url": fetched["url"],
+            "kind": kind,
+            "text": text[:limit],
+            "image": image,
+            "char_count": len(text),
+            "word_count": len(text.split()),
+            "truncated": len(text) > limit,
+        },
+    }
 
 
 def scrape_page(url, check_cancelled=no_check):
-    html, encoding, final_url = fetch_html(url, check_cancelled)
-    title, text = extract_text(html, encoding)
-    logger.debug("Title=%r, extracted %d chars", title, len(text))
-
-    if len(text) < settings.SCRAPER_MIN_TEXT_CHARS:
-        raise ScrapeError(
-            "We couldn't find readable text on that page.",
-            422,
-            "no_text",
-        )
-
-    limit = settings.SCRAPER_MAX_TEXT_CHARS
-    return {
-        "title": title or urlsplit(final_url).hostname,
-        "url": final_url,
-        "text": text[:limit],
-        "char_count": len(text),
-        "word_count": len(text.split()),
-        "truncated": len(text) > limit,
-    }
+    for step in scrape_steps(url, check_cancelled):
+        if step["type"] == "page":
+            return step["page"]
+    raise ScrapeError("We couldn't find readable text there.", 422, "no_text")

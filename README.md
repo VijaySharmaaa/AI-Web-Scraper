@@ -1,12 +1,17 @@
 # AI Web Scraper
 
-Paste a webpage URL, the backend scrapes the main text from it, sends it to a free AI
+Paste a link, the backend scrapes the main text from it, sends it to a free AI
 model, and you get a short summary back (a short overview plus the key points).
+It works with web pages (including ones built with JavaScript), PDFs, Word files, images,
+plain text, Markdown, CSV, JSON and RSS/Atom feeds.
 
 **Live demo:** _add your Render URL here after deploying_
 
 ## Features
 
+- **Reads all kinds of links**: normal pages, JavaScript apps (rendered in a headless Chromium when
+  the HTML has no text), PDFs, Word (.docx), images (read by Gemini), text, Markdown, CSV, JSON and
+  RSS/Atom feeds. The type is detected from the response, not just the URL
 - **Clean, responsive UI**: React + TypeScript, Tailwind CSS and shadcn/ui components. Two columns on wide
   screens (results + a sidebar with history and "how it works"), one column on phones
 - **Themes**: light / dark / system mode and shadcn's base colors (Neutral, Zinc, Stone, Slate, Gray)
@@ -18,7 +23,7 @@ model, and you get a short summary back (a short overview plus the key points).
 - **Real cancel**: Cancel (or Esc) stops the work on the server too, between steps, and gives the
   daily try back
 - **Every state handled**: loading steps with a cancel button, specific error messages (site blocked,
-  page not found, not a web page, JavaScript-only page, rate limits...) with "Try again" / "Edit URL"
+  page not found, unsupported file, file too large, rate limits...) with "Try again" / "Edit URL"
   actions, and banners when you're offline, the server is down or has no AI key
 - **History with consent**: the first visit asks before saving anything. With "Allow" your last
   summaries are kept in the browser, with "No thanks" only until the tab is closed.
@@ -46,7 +51,7 @@ tooltip, popover, select, alert dialog, spinner and the sonner toaster.
 |-----------|------|
 | Frontend  | React 19 + TypeScript, Vite, Tailwind CSS v4, shadcn/ui (Radix) with its color themes, lucide icons, sonner toasts |
 | Backend   | Python, Django 5.2 + Django REST Framework |
-| Scraping  | `httpx` to download the page, `BeautifulSoup` to pull out the text |
+| Scraping  | `httpx` to download, `BeautifulSoup` for HTML, Playwright (headless Chromium) for JavaScript pages, `pypdf` and `python-docx` for files |
 | AI        | Google Gemini free-tier text models (3.8 / 3.7 / 3.6 / 3.5 / 3 / 2.5 Flash and 3.5 / 3.1 / 2.5 Flash Lite) with Groq (`llama-3.3-70b-versatile`, `llama-3.1-8b-instant`) as fallback |
 | Tests     | Django test runner (backend), Vitest + Testing Library (frontend) |
 | Hosting   | Render (one web service: Django serves the API **and** the built React app) |
@@ -56,8 +61,16 @@ tooltip, popover, select, alert dialog, spinner and the sonner toaster.
 1. You paste a URL and click **Summarize**. The frontend checks the URL first and shows a "Loading..." card.
 2. The frontend calls `POST /api/summarize/` with `{"url": "..."}`.
 3. A DRF serializer validates the URL (and adds `https://` if you left it out).
-4. The scraper checks the address is a public website, downloads the HTML (max 5 MB, 30 s), removes
-   scripts / nav / footer etc., and keeps the text from `<article>` or `<main>` (falls back to `<body>`).
+4. The scraper checks the address is a public website and downloads it (max 20 MB, 30 s). It works out
+   what it got from the content type and the first bytes:
+   - **HTML**: removes scripts / nav / footer etc. and keeps the text from `<article>` or `<main>`
+     (falls back to `<body>`). If there's barely any text, it looks at the data the page ships with
+     (JSON-LD, `__NEXT_DATA__`, meta descriptions), and if that's not enough either it opens the page
+     in a headless browser and reads the text after the JavaScript has run.
+   - **PDF / Word**: the text of the document (first 60 PDF pages).
+   - **Text, Markdown, CSV, JSON, RSS/Atom**: read as they are, feeds item by item.
+   - **Images**: sent to Gemini as an image.
+
    The text is cut at 15,000 characters.
 5. The text goes to the first AI model. If it's rate limited, down, retired or returns nothing,
    the next model is tried, and so on.
@@ -84,7 +97,9 @@ AI-Web-Scraper/
 │       ├── tests.py
 │       ├── prompts/summary.txt  # instructions for the AI
 │       └── services/
-│           ├── scraper.py       # safe download + text extraction
+│           ├── scraper.py       # safe download, picks a reader for the content
+│           ├── extractors.py    # HTML, PDF, Word, CSV, JSON, feeds, images
+│           ├── browser.py       # headless Chromium for JavaScript pages
 │           └── ai.py            # Gemini / Groq calls with fallback
 ├── frontend/                    # React + TypeScript (Vite)
 │   ├── components.json          # shadcn/ui config
@@ -126,7 +141,12 @@ source .venv/bin/activate        # mac / linux
 # .venv\Scripts\Activate.ps1     # windows powershell
 
 pip install -r requirements.txt
+playwright install chromium      # headless browser for JavaScript pages
 ```
+
+> Skipping `playwright install chromium` is fine: everything else works, pages that need
+> JavaScript just fall back to the text in their HTML. On Linux, `playwright install --with-deps chromium`
+> also installs the system libraries Chromium needs.
 
 **The `.env` file goes in the `backend/` folder.** Copy the example file and add your key(s):
 
@@ -291,7 +311,11 @@ That's normal for development and doesn't happen in the built app.
   (cloud metadata) etc. are blocked. The request then connects to that **same checked IP**
   (with TLS still verified against the real hostname), so DNS rebinding can't sneak past the check.
   Every redirect is checked again.
-- **Resource limits**: max 5 MB download, 30 s total for the page, 75 s total for the AI,
+- **Headless browser**: JavaScript pages are opened in Chromium, but the browser never touches the
+  network itself. Every request it makes is passed through the same checked, IP-pinned client, so a
+  page's scripts can't reach `localhost` or internal addresses. Images, fonts, media and websockets
+  are skipped, and requests, time and concurrent renders are capped.
+- **Resource limits**: max 20 MB download (10 MB for images), 30 s total for the page, 90 s total for the AI,
   10 KB request bodies, at most 5 redirects.
 - **Rate limiting**: a daily limit (3 per IP on the live demo) and 10 requests per minute per IP, both
   configurable and shared between workers.
@@ -312,8 +336,12 @@ The repo includes `render.yaml`, so deploying is mostly clicking buttons:
 2. On <https://dashboard.render.com> click **New > Blueprint** and pick this repo.
 3. When it asks for `GEMINI_API_KEY` / `GROQ_API_KEY`, paste your key(s). Leave one empty if you
    only have one. The other env vars are set automatically.
-4. Wait for the build (`build.sh` builds the React app and installs the Python packages).
-   Django then serves both the API and the frontend from the same URL, so there's no CORS setup.
+4. Wait for the build. The `Dockerfile` builds the React app, installs the Python packages and a
+   headless Chromium (for JavaScript pages). Django then serves both the API and the frontend from
+   the same URL, so there's no CORS setup.
+
+Without Docker you can still use `build.sh` as the build command (Python runtime). Everything works
+except rendering JavaScript pages, which needs Chromium on the machine.
 
 Note: the free Render plan sleeps after 15 minutes without traffic, so the first request after
 that can take around 30 seconds (the app shows a "Can't reach the server" banner with a retry button meanwhile).
@@ -337,6 +365,10 @@ The most useful ones:
 | `SUMMARIES_PER_DAY` | `0` (unlimited) | per visitor IP, resets at midnight UTC. `3` on Render |
 | `THROTTLE_SUMMARIZE` | `10/min` | burst limit per IP |
 | `SCRAPER_MAX_TEXT_CHARS` | `15000` | how much page text is sent to the AI |
+| `SCRAPER_MAX_DOWNLOAD_BYTES` / `SCRAPER_MAX_IMAGE_BYTES` | `20 MB` / `10 MB` | biggest file / image it will read |
+| `SCRAPER_MAX_PDF_PAGES` | `60` | pages read from a PDF |
+| `SCRAPER_BROWSER` | `auto` | `off` to never open JavaScript pages in a browser |
+| `SCRAPER_BROWSER_TIMEOUT` / `SCRAPER_BROWSER_CONCURRENCY` | `20` / `1` | seconds per render, renders at once per worker |
 | `SCRAPER_TOTAL_TIME_LIMIT` / `AI_TOTAL_TIME_LIMIT` | `30` / `90` | seconds |
 | `AI_TIMEOUT` | `20` | seconds one model gets before Auto moves on |
 | `AI_MODEL_COOLDOWN_SECONDS` | `120` | a busy or slow model is tried last for this long |
@@ -351,8 +383,10 @@ the GitHub link, request timeout and history size.
 
 ## Limitations
 
-- It only reads the HTML the server sends back, so pages that build their content with JavaScript
-  (some SPAs) won't have much text to summarize. The app tells you when that happens.
+- Videos and audio can't be summarized. Images need a Gemini model (Llama on Groq can't see them).
+- Pages behind a login, and scanned PDFs without a text layer, have nothing to read.
+- JavaScript pages take a few seconds longer because they're opened in a real browser. Every request
+  that browser makes goes through the same SSRF checks as the scraper.
 - Some sites (Cloudflare etc.) block scrapers and return 403.
 - Very long pages are cut to 15,000 characters before being sent to the AI.
 - Free AI tiers have per-minute limits. With both keys set, the fallback usually hides this.

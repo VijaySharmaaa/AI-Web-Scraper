@@ -30,8 +30,15 @@ describe("describeError", () => {
 
   it("uses a specific hint per error code", () => {
     expect(describeError(http(422, "dns_not_found")).title).toBe("Website not found");
-    expect(describeError(http(422, "no_text")).hint).toContain("JavaScript");
+    expect(describeError(http(422, "no_text")).hint).toContain("login");
     expect(describeError(http(400, "private_address")).hint).toContain("localhost");
+  });
+
+  it("explains files it can't read", () => {
+    expect(describeError(http(415, "unsupported_type")).title).toBe("Can't summarize this file");
+    expect(describeError(http(415, "something_new")).title).toBe("Can't summarize this file");
+    expect(describeError(http(413, "file_too_large")).title).toBe("That file is too large");
+    expect(describeError(http(422, "model_cant_read_images")).retryable).toBe(false);
   });
 
   it("falls back to the status code for unknown codes", () => {

@@ -32,6 +32,4 @@ class Command(BaseCommand):
             status = f"-> {match}" if match else "NOT FOUND, hidden"
             self.stdout.write(f"  {name:30s} {status}")
 
-        self.stdout.write(
-            "\nTo use other ids, set GEMINI_MODELS in backend/.env (comma separated) and restart the server.\n"
-        )
+        self.stdout.write("\nTo use other ids, set GEMINI_MODELS in backend/.env (comma separated) and restart the server.\n")
