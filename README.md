@@ -5,13 +5,14 @@ model, and you get a short summary back (a short overview plus the key points).
 It works with web pages (including ones built with JavaScript), PDFs, Word files, images,
 plain text, Markdown, CSV, JSON and RSS/Atom feeds.
 
-**Live demo:** _add your Render URL here after deploying_
+**Live demo:** _add your Vercel URL here after deploying_
 
 ## Features
 
-- **Reads all kinds of links**: normal pages, JavaScript apps (rendered in a headless Chromium when
-  the HTML has no text), PDFs, Word (.docx), images (read by Gemini), text, Markdown, CSV, JSON and
-  RSS/Atom feeds. The type is detected from the response, not just the URL
+- **Reads all kinds of links**: web pages, PDFs, Word (.docx), images (read by Gemini), text, Markdown,
+  CSV, JSON and RSS/Atom feeds, all with plain HTTP requests (no headless browser). The type is detected
+  from the response, not just the URL. For pages that build their text with JavaScript, it reads the
+  data the page ships with (JSON-LD, `__NEXT_DATA__`, meta descriptions)
 - **Clean, responsive UI**: React + TypeScript, Tailwind CSS and shadcn/ui components. Two columns on wide
   screens (results + a sidebar with history and "how it works"), one column on phones
 - **Themes**: light / dark / system mode and shadcn's base colors (Neutral, Zinc, Stone, Slate, Gray)
@@ -51,10 +52,10 @@ tooltip, popover, select, alert dialog, spinner and the sonner toaster.
 |-----------|------|
 | Frontend  | React 19 + TypeScript, Vite, Tailwind CSS v4, shadcn/ui (Radix) with its color themes, lucide icons, sonner toasts |
 | Backend   | Python, Django 5.2 + Django REST Framework |
-| Scraping  | `httpx` to download, `BeautifulSoup` for HTML, Playwright (headless Chromium) for JavaScript pages, `pypdf` and `python-docx` for files |
+| Scraping  | `httpx` (a requests-style HTTP client) to download, `BeautifulSoup` + `lxml` for HTML, `pypdf` and `python-docx` for files |
 | AI        | Google Gemini free-tier text models (3.8 / 3.7 / 3.6 / 3.5 / 3 / 2.5 Flash and 3.5 / 3.1 / 2.5 Flash Lite) with Groq (`llama-3.3-70b-versatile`, `llama-3.1-8b-instant`) as fallback |
 | Tests     | Django test runner (backend), Vitest + Testing Library (frontend) |
-| Hosting   | Render (one web service: Django serves the API **and** the built React app) |
+| Hosting   | Vercel (the React build as static files, Django as a Python function under `/api`) |
 
 ## How it works
 
@@ -65,8 +66,7 @@ tooltip, popover, select, alert dialog, spinner and the sonner toaster.
    what it got from the content type and the first bytes:
    - **HTML**: removes scripts / nav / footer etc. and keeps the text from `<article>` or `<main>`
      (falls back to `<body>`). If there's barely any text, it looks at the data the page ships with
-     (JSON-LD, `__NEXT_DATA__`, meta descriptions), and if that's not enough either it opens the page
-     in a headless browser and reads the text after the JavaScript has run.
+     (JSON-LD, `__NEXT_DATA__`, meta descriptions).
    - **PDF / Word**: the text of the document (first 60 PDF pages).
    - **Text, Markdown, CSV, JSON, RSS/Atom**: read as they are, feeds item by item.
    - **Images**: sent to Gemini as an image.
@@ -80,9 +80,12 @@ tooltip, popover, select, alert dialog, spinner and the sonner toaster.
 
 ```
 AI-Web-Scraper/
+├── api/index.py                 # Vercel entry point, loads the Django app
+├── requirements.txt             # Python packages (Vercel reads this one)
+├── vercel.json                  # Vercel build, routes and headers
 ├── backend/                     # Django + DRF
 │   ├── .env.example             # copy this to backend/.env and add your key(s)
-│   ├── requirements.txt
+│   ├── requirements.txt         # points to ../requirements.txt
 │   ├── manage.py
 │   ├── config/
 │   │   ├── settings.py          # security settings, rate limits, CORS...
@@ -99,7 +102,6 @@ AI-Web-Scraper/
 │       └── services/
 │           ├── scraper.py       # safe download, picks a reader for the content
 │           ├── extractors.py    # HTML, PDF, Word, CSV, JSON, feeds, images
-│           ├── browser.py       # headless Chromium for JavaScript pages
 │           └── ai.py            # Gemini / Groq calls with fallback
 ├── frontend/                    # React + TypeScript (Vite)
 │   ├── components.json          # shadcn/ui config
@@ -109,8 +111,6 @@ AI-Web-Scraper/
 │       ├── components/ui/       # shadcn/ui components
 │       ├── hooks/               # theme, online status, countdown...
 │       └── lib/                 # api client, url checks, error messages, history
-├── build.sh                     # build script for Render
-└── render.yaml                  # Render deploy config
 ```
 
 ## Running it locally
@@ -141,12 +141,7 @@ source .venv/bin/activate        # mac / linux
 # .venv\Scripts\Activate.ps1     # windows powershell
 
 pip install -r requirements.txt
-playwright install chromium      # headless browser for JavaScript pages
 ```
-
-> Skipping `playwright install chromium` is fine: everything else works, pages that need
-> JavaScript just fall back to the text in their HTML. On Linux, `playwright install --with-deps chromium`
-> also installs the system libraries Chromium needs.
 
 **The `.env` file goes in the `backend/` folder.** Copy the example file and add your key(s):
 
@@ -293,7 +288,7 @@ Measured on the production build served by Django:
 
 | | Before | After |
 |---|---|---|
-| Data downloaded on first visit | 503 KB | 129 KB (brotli / gzip, made at build time) |
+| Data downloaded on first visit | 503 KB | 129 KB (brotli / gzip) |
 | Repeat visits | most files again | hashed files cached for a year, React in its own long-lived chunk |
 | `/api/health/` calls on load | 2 (in dev) | 1 (shared in-flight request) |
 | Health check while 4 summaries run | 8.9 s (2 sync workers busy) | 0.005 s (gunicorn threads) |
@@ -311,48 +306,59 @@ That's normal for development and doesn't happen in the built app.
   (cloud metadata) etc. are blocked. The request then connects to that **same checked IP**
   (with TLS still verified against the real hostname), so DNS rebinding can't sneak past the check.
   Every redirect is checked again.
-- **Headless browser**: JavaScript pages are opened in Chromium, but the browser never touches the
-  network itself. Every request it makes is passed through the same checked, IP-pinned client, so a
-  page's scripts can't reach `localhost` or internal addresses. Images, fonts, media and websockets
-  are skipped, and requests, time and concurrent renders are capped.
 - **Resource limits**: max 20 MB download (10 MB for images), 30 s total for the page, 90 s total for the AI,
   10 KB request bodies, at most 5 redirects.
 - **Rate limiting**: a daily limit (3 per IP on the live demo) and 10 requests per minute per IP, both
-  configurable and shared between workers.
+  configurable. They're shared between workers and, on Vercel, between function instances when
+  `REDIS_URL` is set.
 - **Headers**: Content-Security-Policy (no inline scripts), `X-Frame-Options: DENY`, `nosniff`,
   Referrer-Policy, Permissions-Policy, HTTPS redirect + HSTS when deployed.
 - **CORS**: closed by default (the app is same-origin), only opened for origins you list.
 - **AI output**: the page text is marked as untrusted in the prompt (prompt injection), markdown is
   rendered without raw HTML, and links open with `rel="noopener noreferrer nofollow"`.
-- **Secrets**: keys only live in `backend/.env` / Render env vars. Error messages from Google/Groq are
+- **Secrets**: keys only live in `backend/.env` / Vercel env vars. Error messages from Google/Groq are
   logged on the server but never sent to the browser.
 - **Dependencies**: checked with `pip-audit` and `npm audit` (no known vulnerabilities).
 
-## Deploying (Render)
+## Deploying (Vercel)
 
-The repo includes `render.yaml`, so deploying is mostly clicking buttons:
+The repo includes `vercel.json`, so Vercel knows how to build both halves:
+
+- the React app is built (`frontend/` → `frontend/dist`) and served as static files,
+- `api/index.py` runs the Django app as a Python function, and every `/api/...` request goes to it,
+- every other path serves `index.html`, so the React app handles it.
+
+Steps:
 
 1. Push the repo to GitHub.
-2. On <https://dashboard.render.com> click **New > Blueprint** and pick this repo.
-3. When it asks for `GEMINI_API_KEY` / `GROQ_API_KEY`, paste your key(s). Leave one empty if you
-   only have one. The other env vars are set automatically.
-4. Wait for the build. The `Dockerfile` builds the React app, installs the Python packages and a
-   headless Chromium (for JavaScript pages). Django then serves both the API and the frontend from
-   the same URL, so there's no CORS setup.
+2. On <https://vercel.com/new> import the repo. Leave **Root Directory** as the repo root and the
+   framework as **Other**; the build settings come from `vercel.json`.
+3. Under **Environment Variables** add:
+   - `GEMINI_API_KEY` and/or `GROQ_API_KEY`
+   - `DJANGO_SECRET_KEY`: any long random string
+   - `SUMMARIES_PER_DAY`: `3`
+   - `REDIS_URL`: recommended, see below
+4. Click **Deploy**. The `*.vercel.app` address is allowed automatically. For a custom domain, also
+   set `DJANGO_ALLOWED_HOSTS=your.domain.com`.
 
-Without Docker you can still use `build.sh` as the build command (Python runtime). Everything works
-except rendering JavaScript pages, which needs Chromium on the machine.
+**Why Redis?** Vercel runs the backend as functions, and each instance has its own `/tmp`. The daily
+limit, the Cancel button and the "busy model" memory are kept in the cache, so without a shared cache
+they only work within one instance. Add a free Redis from the Vercel Marketplace (Upstash) or any
+Redis host and put its `rediss://...` URL in `REDIS_URL` (`KV_URL` also works). Without it the app still
+works, the daily limit just isn't strict.
 
-Note: the free Render plan sleeps after 15 minutes without traffic, so the first request after
-that can take around 30 seconds (the app shows a "Can't reach the server" banner with a retry button meanwhile).
+The function may run for up to 150 seconds (`maxDuration` in `vercel.json`), enough for a slow page
+plus a few AI models. That needs Fluid compute, which is on by default for new projects.
 
-The live demo allows 3 summaries per visitor per day (`SUMMARIES_PER_DAY` in `render.yaml`).
+To run it somewhere else (a VPS, Railway, Fly...), build the frontend, then run
+`gunicorn config.wsgi -c gunicorn.conf.py` in `backend/`. Django serves the built React app itself
+in that setup.
 
 ## Configuration
 
 Nothing is hardcoded: every limit, timeout, URL and model list has a default that can be changed with
 an environment variable. Locally they go in `backend/.env` (all of them are listed with their defaults
-in [`backend/.env.example`](backend/.env.example)), on Render in the dashboard.
+in [`backend/.env.example`](backend/.env.example)), on Vercel under Project Settings > Environment Variables.
 
 The most useful ones:
 
@@ -362,20 +368,19 @@ The most useful ones:
 | `GEMINI_MODELS` / `GROQ_MODELS` | see `.env.example` | models to offer, in fallback order |
 | `GEMINI_CHECK_MODELS` | `True` | hide Gemini models the key can't use (checked hourly) |
 | `WEB_CONCURRENCY` / `GUNICORN_THREADS` | `2` / `8` | gunicorn workers and threads per worker |
-| `SUMMARIES_PER_DAY` | `0` (unlimited) | per visitor IP, resets at midnight UTC. `3` on Render |
+| `SUMMARIES_PER_DAY` | `0` (unlimited) | per visitor IP, resets at midnight UTC. `3` on the live demo |
 | `THROTTLE_SUMMARIZE` | `10/min` | burst limit per IP |
 | `SCRAPER_MAX_TEXT_CHARS` | `15000` | how much page text is sent to the AI |
 | `SCRAPER_MAX_DOWNLOAD_BYTES` / `SCRAPER_MAX_IMAGE_BYTES` | `20 MB` / `10 MB` | biggest file / image it will read |
 | `SCRAPER_MAX_PDF_PAGES` | `60` | pages read from a PDF |
-| `SCRAPER_BROWSER` | `auto` | `off` to never open JavaScript pages in a browser |
-| `SCRAPER_BROWSER_TIMEOUT` / `SCRAPER_BROWSER_CONCURRENCY` | `20` / `1` | seconds per render, renders at once per worker |
 | `SCRAPER_TOTAL_TIME_LIMIT` / `AI_TOTAL_TIME_LIMIT` | `30` / `90` | seconds |
 | `AI_TIMEOUT` | `20` | seconds one model gets before Auto moves on |
 | `AI_MODEL_COOLDOWN_SECONDS` | `120` | a busy or slow model is tried last for this long |
 | `AI_PROMPT_FILE` | `api/prompts/summary.txt` | the instructions given to the AI |
 | `EXAMPLE_LINKS` | 3 links | "label\|url" pairs separated by `;` |
 | `DJANGO_DEBUG` | `False` | `True` for local development |
-| `NUM_PROXIES` | `0` | proxies in front of the app (Render: `1`), for the real visitor IP |
+| `NUM_PROXIES` | `0` (`1` on Vercel) | proxies in front of the app, for the real visitor IP |
+| `REDIS_URL` | - | shared cache for the daily limit and cancel, recommended on Vercel |
 
 The frontend reads `VITE_*` variables from `frontend/.env` (see
 [`frontend/.env.example`](frontend/.env.example)): app name, API URL (only if hosted separately),
@@ -385,8 +390,8 @@ the GitHub link, request timeout and history size.
 
 - Videos and audio can't be summarized. Images need a Gemini model (Llama on Groq can't see them).
 - Pages behind a login, and scanned PDFs without a text layer, have nothing to read.
-- JavaScript pages take a few seconds longer because they're opened in a real browser. Every request
-  that browser makes goes through the same SSRF checks as the scraper.
+- There's no headless browser, so pages that only build their text in the browser (and don't ship it
+  as JSON-LD or page data) have little to read. The app says so when that happens.
 - Some sites (Cloudflare etc.) block scrapers and return 403.
 - Very long pages are cut to 15,000 characters before being sent to the AI.
 - Free AI tiers have per-minute limits. With both keys set, the fallback usually hides this.

@@ -11,7 +11,7 @@ import httpx
 from django.conf import settings
 
 from ..exceptions import ScrapeError
-from . import browser, extractors
+from . import extractors
 
 logger = logging.getLogger(__name__)
 
@@ -205,7 +205,7 @@ def extract_text(html, encoding=None):
     return extractors.html_text(html, encoding)
 
 
-def read_html(fetched, check_cancelled):
+def read_html(fetched):
     title, text = extractors.html_text(fetched["body"], fetched["charset"])
     if len(text) >= settings.SCRAPER_MIN_TEXT_CHARS:
         return "html", title, text
@@ -215,15 +215,6 @@ def read_html(fetched, check_cancelled):
         logger.debug("Using the page's built-in data (%d chars)", len(data_text))
         title, text = title or data_title, data_text
 
-    if len(text) >= settings.SCRAPER_MIN_TEXT_CHARS * 4 or not browser.available():
-        return "html", title, text
-
-    yield {"type": "step", "step": "rendering"}
-    rendered = browser.render(fetched["url"], check_cancelled)
-    if rendered:
-        browser_title, browser_text = extractors.html_text(rendered)
-        if len(browser_text) > len(text):
-            return "html", browser_title or title, browser_text
     return "html", title, text
 
 
@@ -239,7 +230,7 @@ def scrape_steps(url, check_cancelled=no_check):
     image = None
 
     if kind == "html":
-        kind, title, text = yield from read_html(fetched, check_cancelled)
+        kind, title, text = read_html(fetched)
     elif kind == "pdf":
         if fetched["truncated"]:
             raise too_large("PDF")

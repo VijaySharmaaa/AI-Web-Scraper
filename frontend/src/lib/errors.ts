@@ -70,7 +70,7 @@ const BY_CODE: Record<string, Preset> = {
     tone: "warning",
     retryable: false,
     editUrl: true,
-    hint: "It may be behind a login or mostly images. Try another link."
+    hint: "It may need JavaScript or a login to show its text. Articles, docs and files work best."
   },
   model_busy: {
     title: "That model is busy",

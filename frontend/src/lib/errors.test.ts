@@ -30,7 +30,7 @@ describe("describeError", () => {
 
   it("uses a specific hint per error code", () => {
     expect(describeError(http(422, "dns_not_found")).title).toBe("Website not found");
-    expect(describeError(http(422, "no_text")).hint).toContain("login");
+    expect(describeError(http(422, "no_text")).hint).toContain("JavaScript");
     expect(describeError(http(400, "private_address")).hint).toContain("localhost");
   });
 

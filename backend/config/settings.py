@@ -37,9 +37,11 @@ if not SECRET_KEY:
 
 ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1")
 
-RENDER_HOST = os.getenv("RENDER_EXTERNAL_HOSTNAME")
-if RENDER_HOST:
-    ALLOWED_HOSTS.append(RENDER_HOST)
+ON_VERCEL = bool(os.getenv("VERCEL"))
+for name in ("VERCEL_URL", "VERCEL_BRANCH_URL", "VERCEL_PROJECT_PRODUCTION_URL"):
+    host = os.getenv(name, "").strip()
+    if host and host not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(host)
 
 INSTALLED_APPS = [
     "django.contrib.contenttypes",
@@ -80,18 +82,21 @@ USE_I18N = False
 USE_TZ = True
 
 STATIC_URL = "static/"
-STATIC_ROOT = BASE_DIR / "staticfiles"
 WHITENOISE_ROOT = FRONTEND_DIST if FRONTEND_DIST.exists() else None
 WHITENOISE_IMMUTABLE_FILE_TEST = r"^/assets/.+-[A-Za-z0-9_-]{8,}\.\w+$"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-CACHES = {
-    "default": {
-        "BACKEND": "django.core.cache.backends.filebased.FileBasedCache",
-        "LOCATION": os.getenv("CACHE_DIR", os.path.join(tempfile.gettempdir(), "ai-web-scraper-cache")),
+REDIS_URL = os.getenv("REDIS_URL", "").strip() or os.getenv("KV_URL", "").strip()
+if REDIS_URL:
+    CACHES = {"default": {"BACKEND": "django.core.cache.backends.redis.RedisCache", "LOCATION": REDIS_URL}}
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.filebased.FileBasedCache",
+            "LOCATION": os.getenv("CACHE_DIR", os.path.join(tempfile.gettempdir(), "ai-web-scraper-cache")),
+        }
     }
-}
 
 DATA_UPLOAD_MAX_MEMORY_SIZE = env_int("MAX_REQUEST_BODY_BYTES", 10 * 1024)
 
@@ -104,7 +109,7 @@ SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
 SECURE_CROSS_ORIGIN_OPENER_POLICY = "same-origin"
 X_FRAME_OPTIONS = "DENY"
 
-if env_bool("DJANGO_SECURE_HTTPS", bool(RENDER_HOST)):
+if env_bool("DJANGO_SECURE_HTTPS", ON_VERCEL):
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
     SECURE_SSL_REDIRECT = True
     SECURE_REDIRECT_EXEMPT = [r"^api/health/$"]
@@ -127,11 +132,6 @@ SCRAPER_MIN_TEXT_CHARS = env_int("SCRAPER_MIN_TEXT_CHARS", 50)
 SCRAPER_MAX_DOWNLOAD_BYTES = env_int("SCRAPER_MAX_DOWNLOAD_BYTES", 20 * 1024 * 1024)
 SCRAPER_MAX_IMAGE_BYTES = env_int("SCRAPER_MAX_IMAGE_BYTES", 10 * 1024 * 1024)
 SCRAPER_MAX_PDF_PAGES = env_int("SCRAPER_MAX_PDF_PAGES", 60)
-SCRAPER_BROWSER = os.getenv("SCRAPER_BROWSER", "auto").strip().lower()
-SCRAPER_BROWSER_TIMEOUT = env_float("SCRAPER_BROWSER_TIMEOUT", 20)
-SCRAPER_BROWSER_EXECUTABLE = os.getenv("SCRAPER_BROWSER_EXECUTABLE", "").strip()
-SCRAPER_BROWSER_CONCURRENCY = env_int("SCRAPER_BROWSER_CONCURRENCY", 1)
-SCRAPER_BROWSER_MAX_REQUESTS = env_int("SCRAPER_BROWSER_MAX_REQUESTS", 150)
 SCRAPER_MAX_REDIRECTS = env_int("SCRAPER_MAX_REDIRECTS", 5)
 SCRAPER_ALLOWED_PORTS = [int(p) for p in env_list("SCRAPER_ALLOWED_PORTS", "80,443,8080,8443")]
 SCRAPER_TIMEOUT = env_float("SCRAPER_TIMEOUT", 15)
@@ -205,7 +205,7 @@ REST_FRAMEWORK = {
         "anon": os.getenv("THROTTLE_ANON", "120/min"),
         "summarize": os.getenv("THROTTLE_SUMMARIZE", "10/min"),
     },
-    "NUM_PROXIES": int(os.getenv("NUM_PROXIES", "0")),
+    "NUM_PROXIES": env_int("NUM_PROXIES", 1 if ON_VERCEL else 0),
 }
 
 LOGGING = {

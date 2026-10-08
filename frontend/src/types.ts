@@ -57,6 +57,6 @@ export interface HistoryItem extends SummaryResponse {
 }
 
 export type Progress =
-  | { type: "step"; step: "fetching" | "rendering" | "reading"; title?: string; kind?: ContentKind }
+  | { type: "step"; step: "fetching" | "reading"; title?: string; kind?: ContentKind }
   | { type: "model"; provider: string; model: string; label: string }
   | { type: "model_switch"; from_label: string; reason: string; provider: string; model: string; label: string };

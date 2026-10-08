@@ -11,7 +11,7 @@ from rest_framework.test import APIClient
 from rest_framework.throttling import ScopedRateThrottle
 
 from .exceptions import AIError, Cancelled, ScrapeError
-from .services import ai, browser, extractors, scraper
+from .services import ai, extractors, scraper
 from .services.scraper import extract_text, scrape_page
 
 FAKE_PAGE = {
@@ -73,7 +73,6 @@ def html_response(body=ARTICLE_HTML, status=200, content_type="text/html; charse
     return httpx.Response(status, content=body, headers={"content-type": content_type, **kw.pop("headers", {})}, **kw)
 
 
-@override_settings(SCRAPER_BROWSER="off")
 class ExtractTextTests(SimpleTestCase):
     def test_removes_nav_and_scripts(self):
         title, text = extract_text(ARTICLE_HTML)
@@ -99,7 +98,6 @@ class ExtractTextTests(SimpleTestCase):
         self.assertIn("Some text in a div.", text)
 
 
-@override_settings(SCRAPER_BROWSER="off")
 class UrlSafetyTests(SimpleTestCase):
     def assert_blocked(self, url, dns=None):
         with fake_dns(dns or {}), self.assertRaises(ScrapeError):
@@ -184,7 +182,6 @@ class UrlSafetyTests(SimpleTestCase):
         self.assertIn("keeps redirecting", str(ctx.exception.detail))
 
 
-@override_settings(SCRAPER_BROWSER="off")
 class FetchErrorTests(SimpleTestCase):
     def scrape_with(self, response):
         with fake_dns({"example.com": PUBLIC_IP}), fake_site(lambda r: response):
@@ -672,7 +669,6 @@ class NoQuotaTests(SimpleTestCase):
         self.assertTrue(all("label" in e and "url" in e for e in data["examples"]))
 
 
-@override_settings(SCRAPER_BROWSER="off")
 class SettingsTests(SimpleTestCase):
     @override_settings(SCRAPER_MAX_TEXT_CHARS=100)
     def test_text_limit_comes_from_settings(self):
@@ -988,7 +984,6 @@ def make_docx(paragraphs):
 LONG_LINE = "This sentence is long enough to count as readable text for the scraper"
 
 
-@override_settings(SCRAPER_BROWSER="off")
 class ContentTypeTests(SimpleTestCase):
     def scrape(self, body, content_type, path="/file"):
         with fake_dns({"example.com": PUBLIC_IP}), fake_site(lambda r: html_response(body, content_type=content_type)):
@@ -1112,10 +1107,3 @@ class ImageSummaryTests(SimpleTestCase):
             ai.summarize(self.IMAGE_PAGE, preferred_model="llama-a")
         self.assertEqual(ctx.exception.error_code, "model_cant_read_images")
         self.assertIn("Gemini model or switch to Auto", str(ctx.exception.detail))
-
-
-class BrowserTests(SimpleTestCase):
-    @override_settings(SCRAPER_BROWSER="off")
-    def test_can_be_turned_off(self):
-        self.assertFalse(browser.available())
-        self.assertIsNone(browser.render("https://example.com/"))
