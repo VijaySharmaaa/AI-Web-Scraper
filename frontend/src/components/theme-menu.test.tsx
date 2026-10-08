@@ -37,9 +37,19 @@ describe("ThemeMenu", () => {
     expect(localStorage.getItem("theme")).toBe("system");
   });
 
-  it("ignores junk in storage", () => {
-    localStorage.setItem("theme-color", "<script>");
+  it("ignores junk or removed colors in storage", () => {
+    for (const saved of ["<script>", "violet"]) {
+      localStorage.setItem("theme-color", saved);
+      const { unmount } = renderMenu();
+      expect(document.documentElement.hasAttribute("data-color")).toBe(false);
+      unmount();
+    }
+  });
+
+  it("has no purple options", async () => {
+    const user = userEvent.setup();
     renderMenu();
-    expect(document.documentElement.hasAttribute("data-color")).toBe(false);
+    await user.click(screen.getByRole("button", { name: "Theme settings" }));
+    expect(screen.queryByRole("button", { name: /violet|purple|indigo/i })).not.toBeInTheDocument();
   });
 });

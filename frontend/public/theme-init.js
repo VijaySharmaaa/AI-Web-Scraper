@@ -7,8 +7,10 @@
     var dark = mode === "dark" || (mode === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
     root.classList.toggle("dark", dark);
 
+    // keep this list in sync with src/lib/themes.ts
+    var colors = ["zinc", "stone", "slate", "gray", "blue", "green", "orange", "rose", "red", "yellow"];
     var color = localStorage.getItem("theme-color");
-    if (color && /^[a-z]+$/.test(color) && color !== "neutral") root.setAttribute("data-color", color);
+    if (colors.indexOf(color) !== -1) root.setAttribute("data-color", color);
   } catch (e) {
     // localStorage blocked, just use the default
   }

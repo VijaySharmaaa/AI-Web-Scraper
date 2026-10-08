@@ -9,7 +9,7 @@ model, and you get a short summary back (a TL;DR plus key points).
 
 - **Clean, responsive UI**: React + TypeScript, Tailwind CSS and shadcn/ui components
 - **Themes**: light / dark / system mode plus shadcn's color themes (Neutral, Zinc, Stone, Slate, Gray
-  and Blue, Green, Orange, Rose, Red, Yellow, Violet accents) from the palette button in the header.
+  and Blue, Green, Orange, Rose, Red, Yellow accents) from the palette button in the header.
   Neutral is the default. Your choice is remembered in the browser
 - **Every state handled**: loading steps with a cancel button, specific error messages
   (site blocked, page not found, not a web page, JavaScript-only page, rate limits...) with

@@ -272,16 +272,6 @@ html.dark[data-color="yellow"] {
   --ring: oklch(0.852 0.199 91.936);
 }
 
-html[data-color="violet"] {
-  --primary: oklch(0.541 0.281 293.009);
-  --primary-foreground: oklch(0.985 0 0);
-  --ring: oklch(0.541 0.281 293.009);
-}
-html.dark[data-color="violet"] {
-  --primary: oklch(0.702 0.183 293.541);
-  --primary-foreground: oklch(0.205 0 0);
-  --ring: oklch(0.702 0.183 293.541);
-}
 
 
 @theme inline {

@@ -17,7 +17,6 @@ export const ACCENT_COLORS = [
   { name: "rose", label: "Rose", swatch: "oklch(0.514 0.222 16.935)", swatchDark: "oklch(0.645 0.246 16.439)" },
   { name: "red", label: "Red", swatch: "oklch(0.577 0.245 27.325)", swatchDark: "oklch(0.637 0.237 25.331)" },
   { name: "yellow", label: "Yellow", swatch: "oklch(0.554 0.135 66.442)", swatchDark: "oklch(0.852 0.199 91.936)" },
-  { name: "violet", label: "Violet", swatch: "oklch(0.541 0.281 293.009)", swatchDark: "oklch(0.702 0.183 293.541)" },
 ] as const;
 
 export type ThemeColor = (typeof BASE_COLORS)[number]["name"] | (typeof ACCENT_COLORS)[number]["name"];
