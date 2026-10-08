@@ -29,34 +29,33 @@ export function ModelSelect({ value, onChange, options, disabled }: Props) {
   }
 
   return (
-    <div className="flex min-w-0 items-center gap-2">
-      <label htmlFor="model-select" className="flex shrink-0 items-center gap-1.5 text-sm text-muted-foreground">
-        <Bot className="size-4" />
-        Model
-      </label>
-      <Select value={current} onValueChange={onChange} disabled={disabled || options.length === 0}>
-        <SelectTrigger id="model-select" size="sm" className="min-w-0 max-w-[16rem]" aria-label="AI model">
-          <SelectValue>
-            {current === AUTO ? "Auto" : <span className="truncate font-mono text-xs">{current}</span>}
-          </SelectValue>
-        </SelectTrigger>
-        <SelectContent align="start">
-          <SelectItem value={AUTO}>
-            Auto <span className="text-muted-foreground">· best available</span>
-          </SelectItem>
-          {[...groups.entries()].map(([provider, models]) => (
-            <SelectGroup key={provider}>
-              <SelectSeparator />
-              <SelectLabel>{provider}</SelectLabel>
-              {models.map((model) => (
-                <SelectItem key={model} value={model}>
-                  <span className="font-mono text-xs">{model}</span>
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
+    <Select value={current} onValueChange={onChange} disabled={disabled || options.length === 0}>
+      <SelectTrigger
+        size="sm"
+        aria-label="AI model"
+        className="h-8 max-w-[11rem] gap-1.5 border-0 bg-transparent px-2 shadow-none hover:bg-accent focus-visible:ring-[3px] data-[state=open]:bg-accent sm:max-w-[16rem] dark:bg-transparent dark:hover:bg-accent"
+      >
+        <Bot className="size-4 text-muted-foreground" />
+        <SelectValue>
+          {current === AUTO ? "Auto" : <span className="truncate font-mono text-xs">{current}</span>}
+        </SelectValue>
+      </SelectTrigger>
+      <SelectContent align="start">
+        <SelectItem value={AUTO}>
+          Auto <span className="text-muted-foreground">· best available</span>
+        </SelectItem>
+        {[...groups.entries()].map(([provider, models]) => (
+          <SelectGroup key={provider}>
+            <SelectSeparator />
+            <SelectLabel>{provider}</SelectLabel>
+            {models.map((model) => (
+              <SelectItem key={model} value={model}>
+                <span className="font-mono text-xs">{model}</span>
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }

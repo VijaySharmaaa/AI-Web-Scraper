@@ -3,7 +3,7 @@ import { ClipboardPaste, Link2, Sparkles, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ModelSelect } from "@/components/model-select";
-import { UsageMeter } from "@/components/usage-meter";
+import { UsageRing } from "@/components/usage-ring";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -73,9 +73,15 @@ export function UrlForm({
 
   return (
     <form onSubmit={handleSubmit} noValidate className="space-y-3">
-      <div className="flex flex-col gap-2 sm:flex-row">
-        <div className="relative flex-1">
-          <Link2 className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+      <div
+        className={cn(
+          "rounded-xl border bg-card shadow-xs transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50",
+          showError && "border-destructive focus-within:border-destructive focus-within:ring-destructive/20",
+          loading && "opacity-90"
+        )}
+      >
+        <div className="relative flex items-center">
+          <Link2 className="pointer-events-none absolute left-3.5 size-4 text-muted-foreground" />
           <Input
             ref={inputRef}
             type="url"
@@ -93,10 +99,10 @@ export function UrlForm({
             aria-label="Web page URL"
             aria-invalid={showError || undefined}
             aria-describedby={showError ? "url-error" : "url-help"}
-            className="h-11 pr-20 pl-9 text-base md:text-sm"
+            className="h-12 rounded-xl border-0 bg-transparent pr-20 pl-10 text-base shadow-none focus-visible:ring-0 aria-invalid:ring-0 md:text-sm dark:bg-transparent"
             maxLength={maxUrlLength}
           />
-          <div className="absolute top-1/2 right-1.5 flex -translate-y-1/2 items-center gap-0.5">
+          <div className="absolute right-2 flex items-center gap-0.5">
             {value && !loading && (
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -121,7 +127,14 @@ export function UrlForm({
             {canPaste && !loading && (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button type="button" variant="ghost" hover="info" size="icon-sm" onClick={pasteFromClipboard} aria-label="Paste from clipboard">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    hover="info"
+                    size="icon-sm"
+                    onClick={pasteFromClipboard}
+                    aria-label="Paste from clipboard"
+                  >
                     <ClipboardPaste />
                   </Button>
                 </TooltipTrigger>
@@ -130,20 +143,25 @@ export function UrlForm({
             )}
           </div>
         </div>
-        <Button type="submit" size="lg" hover="success" className="h-11 sm:w-36" disabled={loading || !!blockedReason || !value.trim()}>
-          {loading ? <Spinner aria-hidden="true" role="presentation" /> : <Sparkles />}
-          {loading ? "Summarizing…" : "Summarize"}
-        </Button>
-      </div>
 
-      {(modelOptions.length > 0 || usage) && (
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-          {modelOptions.length > 0 && (
-            <ModelSelect value={model} onChange={onModelChange} options={modelOptions} disabled={loading} />
-          )}
-          {usage && <UsageMeter usage={usage} />}
+        <div className="flex items-center justify-between gap-2 px-2 pb-2">
+          <div className="flex min-w-0 items-center gap-0.5">
+            {modelOptions.length > 0 && (
+              <ModelSelect value={model} onChange={onModelChange} options={modelOptions} disabled={loading} />
+            )}
+            {usage && <UsageRing usage={usage} />}
+          </div>
+          <Button
+            type="submit"
+            hover="success"
+            className="shrink-0 rounded-lg"
+            disabled={loading || !!blockedReason || !value.trim()}
+          >
+            {loading ? <Spinner aria-hidden="true" role="presentation" /> : <Sparkles />}
+            {loading ? "Summarizing…" : "Summarize"}
+          </Button>
         </div>
-      )}
+      </div>
 
       <p
         id={showError ? "url-error" : "url-help"}

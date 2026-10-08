@@ -63,12 +63,13 @@ describe("daily usage", () => {
     const user = userEvent.setup();
     renderApp();
 
-    expect(await screen.findByText(/summaries left today/)).toHaveTextContent("2 of 3 summaries left today");
+    const ring = await screen.findByRole("img", { name: "2 of 3 summaries left today" });
+    expect(ring).toHaveTextContent("2");
 
     await user.type(screen.getByLabelText("Web page URL"), "https://example.com/article");
     await user.click(screen.getByRole("button", { name: /^summarize$/i }));
     await screen.findByRole("heading", { name: RESULT.title });
-    expect(screen.getByText(/summaries left today/)).toHaveTextContent("1 of 3 summaries left today");
+    expect(screen.getByRole("img", { name: "1 of 3 summaries left today" })).toHaveTextContent("1");
   });
 
   it("blocks the button once the limit is reached", async () => {
@@ -76,7 +77,7 @@ describe("daily usage", () => {
     const user = userEvent.setup();
     renderApp();
 
-    expect(await screen.findByText(/Daily limit reached/)).toBeInTheDocument();
+    expect(await screen.findByRole("img", { name: /No summaries left today/ })).toHaveTextContent("0");
     await user.type(screen.getByLabelText("Web page URL"), "https://example.com/article");
     expect(screen.getByRole("button", { name: /^summarize$/i })).toBeDisabled();
     expect(screen.getByText(/You've used today's 3 summaries/)).toBeInTheDocument();
@@ -93,7 +94,7 @@ describe("daily usage", () => {
     );
     const user = userEvent.setup();
     renderApp();
-    await screen.findByText(/summaries left today/);
+    await screen.findByRole("img", { name: /summaries left today/ });
 
     await user.type(screen.getByLabelText("Web page URL"), "https://example.com/article");
     await user.click(screen.getByRole("button", { name: /^summarize$/i }));
