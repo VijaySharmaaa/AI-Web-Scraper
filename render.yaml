@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: ai-web-scraper
+    runtime: python
+    plan: free
+    buildCommand: ./build.sh
+    startCommand: cd backend && gunicorn config.wsgi --bind 0.0.0.0:$PORT --timeout 90
+    healthCheckPath: /api/health/
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: DJANGO_DEBUG
+        value: "False"
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: GEMINI_API_KEY
+        sync: false
