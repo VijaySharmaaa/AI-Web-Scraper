@@ -9,40 +9,17 @@ from urllib.request import getproxies, proxy_bypass
 
 import httpx
 from bs4 import BeautifulSoup
+from django.conf import settings
 
 from ..exceptions import ScrapeError
 
 logger = logging.getLogger(__name__)
 
-# don't send a whole book to the AI, this is enough for a summary
-MAX_TEXT_LENGTH = 15000
-# stop downloading after this many bytes so a huge file can't eat the server's memory
-MAX_DOWNLOAD_BYTES = 5 * 1024 * 1024
-MAX_REDIRECTS = 5
-MAX_URL_LENGTH = 2000
-ALLOWED_PORTS = {None, 80, 443, 8080, 8443}
-TIMEOUT = httpx.Timeout(15, connect=8)
-# httpx timeouts are per step (connect, each read...), so a slow site with
-# redirects could take minutes. This caps the whole download.
-TOTAL_TIME_LIMIT = 30
-# tests swap this for a fake transport
 TRANSPORT = None
-
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.5",
-    "Accept-Language": "en-US,en;q=0.8",
-}
-
-# tags that are almost never part of the main content
-JUNK_TAGS = ["script", "style", "noscript", "iframe", "svg", "canvas", "form",
-             "nav", "header", "footer", "aside", "button", "template", "dialog"]
 
 
 def validate_url(url):
-    """Basic checks on the url itself, before we touch the network."""
-    if len(url) > MAX_URL_LENGTH:
+    if len(url) > settings.SCRAPER_MAX_URL_LENGTH:
         raise ScrapeError("That URL is too long", code="invalid_url")
 
     try:
@@ -55,17 +32,12 @@ def validate_url(url):
         raise ScrapeError("Only http:// and https:// links are supported", code="invalid_url")
     if parts.username or parts.password:
         raise ScrapeError("URLs with a username or password are not allowed", code="invalid_url")
-    if port not in ALLOWED_PORTS:
+    if port is not None and port not in settings.SCRAPER_ALLOWED_PORTS:
         raise ScrapeError(f"Port {port} is not allowed, use a normal website address", code="invalid_url")
     return parts
 
 
 def resolve_public_ip(hostname):
-    """
-    Look up the host and make sure it's a public internet address.
-    This stops people from using the server to reach localhost, the cloud
-    metadata endpoint (169.254.169.254) or other internal machines.
-    """
     try:
         infos = socket.getaddrinfo(hostname, None, proto=socket.IPPROTO_TCP)
     except (socket.gaierror, UnicodeError):
@@ -92,18 +64,10 @@ def uses_proxy(parts):
 
 
 def build_request(clients, url):
-    """
-    Connect to the ip we already checked instead of letting httpx look up the
-    host again. Otherwise a DNS server could answer with a public ip for the
-    check and a private one for the real request (DNS rebinding).
-    Returns (client, request).
-    """
     parts = validate_url(url)
     ip = resolve_public_ip(parts.hostname)
 
     if uses_proxy(parts):
-        # behind an http proxy the proxy does the dns lookup, so we can't pin
-        # the ip ourselves (proxies usually refuse raw ips anyway)
         client = clients["proxy"]
         return client, client.build_request("GET", url)
 
@@ -116,69 +80,80 @@ def build_request(clients, url):
     host_header = parts.hostname if not parts.port else f"{parts.hostname}:{parts.port}"
     request = client.build_request("GET", pinned_url, headers={"Host": host_header})
     if parts.scheme == "https":
-        # so TLS still checks the certificate against the real hostname
         request.extensions["sni_hostname"] = parts.hostname
     return client, request
 
 
 def read_limited(response, deadline):
+    limit = settings.SCRAPER_MAX_DOWNLOAD_BYTES
     chunks = []
     total = 0
     for chunk in response.iter_bytes():
         if time.monotonic() > deadline:
             raise ScrapeError("The website is sending the page too slowly", 504, "site_timeout")
-        room = MAX_DOWNLOAD_BYTES - total
+        room = limit - total
         if len(chunk) >= room:
-            # keep what fits and stop, don't throw the whole chunk away
             chunks.append(chunk[:room])
-            logger.debug("Page is bigger than %d bytes, cutting it off", MAX_DOWNLOAD_BYTES)
+            logger.debug("Page is bigger than %d bytes, cutting it off", limit)
             break
         chunks.append(chunk)
         total += len(chunk)
     return b"".join(chunks)
 
 
+def check_response(response):
+    status = response.status_code
+    content_type = response.headers.get("content-type", "").lower()
+    logger.debug("Got status=%s content-type=%s", status, content_type)
+
+    if status in (401, 403):
+        raise ScrapeError("This website blocked our request (it doesn't allow scrapers or needs a login)", 422, "site_blocked")
+    if status == 404:
+        raise ScrapeError("That page doesn't exist (404). Check the URL.", 422, "page_not_found")
+    if status == 429:
+        raise ScrapeError("The website is rate limiting us. Try again in a bit.", 422, "site_rate_limited")
+    if status >= 400:
+        raise ScrapeError(f"The website returned an error (HTTP {status})", 502, "site_error")
+    if content_type and "html" not in content_type:
+        kind = content_type.split(";")[0]
+        raise ScrapeError(f"That link is not a web page (it's {kind}). Only HTML pages are supported.", 415, "not_html")
+
+
+def http_clients():
+    options = {
+        "headers": {
+            "User-Agent": settings.SCRAPER_USER_AGENT,
+            "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.5",
+            "Accept-Language": "en-US,en;q=0.8",
+        },
+        "timeout": httpx.Timeout(settings.SCRAPER_TIMEOUT, connect=settings.SCRAPER_CONNECT_TIMEOUT),
+        "follow_redirects": False,
+        "transport": TRANSPORT,
+    }
+    ca_file = os.getenv("SSL_CERT_FILE")
+    verify = ssl.create_default_context(cafile=ca_file) if ca_file else True
+    return httpx.Client(trust_env=False, verify=verify, **options), httpx.Client(**options)
+
+
 def fetch_html(url):
     logger.debug("Fetching %s", url)
-    deadline = time.monotonic() + TOTAL_TIME_LIMIT
+    deadline = time.monotonic() + settings.SCRAPER_TOTAL_TIME_LIMIT
 
     try:
-        options = {"headers": HEADERS, "timeout": TIMEOUT, "follow_redirects": False, "transport": TRANSPORT}
-        # trust_env=False: the pinned request must go straight to the ip, not through a proxy.
-        # that also turns off SSL_CERT_FILE, so pass a custom CA bundle in ourselves
-        ca_file = os.getenv("SSL_CERT_FILE")
-        verify = ssl.create_default_context(cafile=ca_file) if ca_file else True
-        with httpx.Client(trust_env=False, verify=verify, **options) as direct, httpx.Client(**options) as proxy:
+        direct, proxy = http_clients()
+        with direct, proxy:
             clients = {"direct": direct, "proxy": proxy}
-            for _ in range(MAX_REDIRECTS + 1):
+            for _ in range(settings.SCRAPER_MAX_REDIRECTS + 1):
                 if time.monotonic() > deadline:
                     raise ScrapeError("The website took too long to respond", 504, "site_timeout")
                 client, request = build_request(clients, url)
                 response = client.send(request, stream=True)
                 try:
                     if response.is_redirect:
-                        location = response.headers.get("location", "")
-                        url = str(httpx.URL(url).join(location))
+                        url = str(httpx.URL(url).join(response.headers.get("location", "")))
                         logger.debug("Redirected to %s", url)
                         continue
-
-                    content_type = response.headers.get("content-type", "").lower()
-                    logger.debug("Got status=%s content-type=%s", response.status_code, content_type)
-
-                    if response.status_code in (401, 403):
-                        raise ScrapeError(
-                            "This website blocked our request (it doesn't allow scrapers or needs a login)", 422, "site_blocked"
-                        )
-                    if response.status_code == 404:
-                        raise ScrapeError("That page doesn't exist (404). Check the URL.", 422, "page_not_found")
-                    if response.status_code == 429:
-                        raise ScrapeError("The website is rate limiting us. Try again in a bit.", 422, "site_rate_limited")
-                    if response.status_code >= 400:
-                        raise ScrapeError(f"The website returned an error (HTTP {response.status_code})", 502, "site_error")
-                    if content_type and "html" not in content_type:
-                        kind = content_type.split(";")[0]
-                        raise ScrapeError(f"That link is not a web page (it's {kind}). Only HTML pages are supported.", 415, "not_html")
-
+                    check_response(response)
                     return read_limited(response, deadline), response.charset_encoding, url
                 finally:
                     response.close()
@@ -205,27 +180,25 @@ def extract_text(html, encoding=None):
     elif soup.title:
         title = clean(soup.title.get_text())
 
-    for tag in soup(JUNK_TAGS):
+    for tag in soup(settings.SCRAPER_IGNORED_TAGS):
         tag.decompose()
 
-    # most blogs / news sites put the content in <article> or <main>
     content = soup.find("article") or soup.find("main") or soup.body or soup
 
     lines = []
     seen = set()
-    for el in content.find_all(["h1", "h2", "h3", "h4", "p", "li", "blockquote", "pre", "td"]):
+    for el in content.find_all(settings.SCRAPER_TEXT_TAGS):
         text = clean(el.get_text(" "))
         if len(text) > 1 and text not in seen:
             seen.add(text)
             lines.append(text)
     text = "\n".join(lines)
 
-    # some sites only use divs, so just grab all the text in that case
-    if len(text) < 200:
+    if len(text) < settings.SCRAPER_FALLBACK_MIN_CHARS:
         logger.debug("Not many text tags found, falling back to all text")
         text = clean(content.get_text(" "))
 
-    return title[:300], text
+    return title[: settings.SCRAPER_MAX_TITLE_CHARS], text
 
 
 def scrape_page(url):
@@ -233,18 +206,19 @@ def scrape_page(url):
     title, text = extract_text(html, encoding)
     logger.debug("Title=%r, extracted %d chars", title, len(text))
 
-    if len(text) < 50:
+    if len(text) < settings.SCRAPER_MIN_TEXT_CHARS:
         raise ScrapeError(
             "Couldn't find readable text on that page. It probably loads its content with JavaScript.",
             422,
             "no_text",
         )
 
+    limit = settings.SCRAPER_MAX_TEXT_CHARS
     return {
         "title": title or urlsplit(final_url).hostname,
         "url": final_url,
-        "text": text[:MAX_TEXT_LENGTH],
+        "text": text[:limit],
         "char_count": len(text),
         "word_count": len(text.split()),
-        "truncated": len(text) > MAX_TEXT_LENGTH,
+        "truncated": len(text) > limit,
     }

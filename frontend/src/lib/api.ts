@@ -1,9 +1,10 @@
+import { config } from "@/config";
 import type { HealthResponse, SummaryResponse } from "@/types";
 
 // empty string = same origin (vite proxy in dev, django serves the app in prod)
-const API_URL = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "");
+
 // a bit longer than the backend needs in the worst case (scrape + several AI fallbacks)
-const REQUEST_TIMEOUT_MS = 130_000;
+
 
 export type ApiErrorKind = "network" | "timeout" | "aborted" | "http";
 
@@ -12,14 +13,19 @@ export class ApiError extends Error {
   status: number;
   code: string;
   retryAfter?: number;
+  resetsAt?: string;
 
-  constructor(message: string, opts: { kind: ApiErrorKind; status?: number; code?: string; retryAfter?: number }) {
+  constructor(
+    message: string,
+    opts: { kind: ApiErrorKind; status?: number; code?: string; retryAfter?: number; resetsAt?: string }
+  ) {
     super(message);
     this.name = "ApiError";
     this.kind = opts.kind;
     this.status = opts.status ?? 0;
     this.code = opts.code ?? opts.kind;
     this.retryAfter = opts.retryAfter;
+    this.resetsAt = opts.resetsAt;
   }
 }
 
@@ -30,13 +36,13 @@ async function request<T>(path: string, init: RequestInit = {}, signal?: AbortSi
   const timer = setTimeout(() => {
     timedOut = true;
     controller.abort();
-  }, REQUEST_TIMEOUT_MS);
+  }, config.requestTimeoutMs);
   const onCallerAbort = () => controller.abort();
   signal?.addEventListener("abort", onCallerAbort);
 
   let res: Response;
   try {
-    res = await fetch(`${API_URL}${path}`, {
+    res = await fetch(`${config.apiUrl}${path}`, {
       ...init,
       signal: controller.signal,
       headers: { Accept: "application/json", ...(init.body ? { "Content-Type": "application/json" } : {}) },
@@ -70,6 +76,7 @@ async function request<T>(path: string, init: RequestInit = {}, signal?: AbortSi
       status: res.status,
       code: data?.code,
       retryAfter: data?.retry_after ?? (Number(res.headers.get("Retry-After")) || undefined),
+      resetsAt: data?.resets_at,
     });
   }
   if (data === null) {

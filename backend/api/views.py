@@ -1,12 +1,14 @@
 import logging
 import time
 
+from django.conf import settings
 from django.http import JsonResponse
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .serializers import SummarizeRequestSerializer, SummarySerializer
+from . import quota
 from .exceptions import AIError
 from .services.ai import available_models, summarize
 from .services.scraper import scrape_page
@@ -27,6 +29,12 @@ class HealthView(APIView):
             "models": [m["model"] for m in models],
             # same list with the provider of each model, for the model picker
             "model_options": models,
+            "usage": quota.usage(request),
+            "limits": {
+                "max_url_length": settings.SCRAPER_MAX_URL_LENGTH,
+                "summaries_per_day": settings.SUMMARIES_PER_DAY or None,
+            },
+            "examples": settings.EXAMPLE_LINKS,
         })
 
 
@@ -51,8 +59,13 @@ class SummarizeView(APIView):
         logger.info("Summarize request for %s (model: %s)", url, model or "auto")
         start = time.time()
 
-        page = scrape_page(url)
-        ai = summarize(page, preferred_model=model)
+        quota.reserve(request)
+        try:
+            page = scrape_page(url)
+            ai = summarize(page, preferred_model=model)
+        except Exception:
+            quota.refund(request)
+            raise
 
         took = round(time.time() - start, 2)
         logger.info("Finished %s in %ss using %s / %s", url, took, ai["provider"], ai["model"])
@@ -67,7 +80,7 @@ class SummarizeView(APIView):
             "took_seconds": took,
             **ai,
         })
-        return Response(result.data, status=status.HTTP_200_OK)
+        return Response({**result.data, "usage": quota.usage(request)}, status=status.HTTP_200_OK)
 
 
 def api_not_found(request, *args, **kwargs):

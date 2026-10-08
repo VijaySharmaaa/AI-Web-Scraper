@@ -3,6 +3,7 @@ import { Check, Globe, FileText, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { config } from "@/config";
 import { Spinner } from "@/components/ui/spinner";
 import { useElapsed } from "@/hooks/use-elapsed";
 import { hostnameOf } from "@/lib/url";
@@ -11,8 +12,8 @@ import { cn } from "@/lib/utils";
 // the backend does all of this in one request, so the steps are a rough
 // guess based on time - they just show the user that things are moving
 const STEPS = [
-  { label: "Fetching the page", icon: Globe, until: 2.5 },
-  { label: "Extracting the main text", icon: FileText, until: 4 },
+  { label: "Fetching the page", icon: Globe, until: config.loadingSteps.fetchSeconds },
+  { label: "Extracting the main text", icon: FileText, until: config.loadingSteps.extractSeconds },
   { label: "Writing the summary with AI", icon: Sparkles, until: Infinity },
 ];
 
@@ -66,7 +67,7 @@ export function LoadingCard({ url, onCancel }: { url: string; onCancel: () => vo
 
         <p className="text-xs text-muted-foreground tabular-nums">
           {elapsed.toFixed(0)}s
-          {elapsed > 20 && " · this page or the AI is a bit slow, hang on…"}
+          {elapsed > config.loadingSteps.slowSeconds && " · this page or the AI is a bit slow, hang on…"}
         </p>
       </CardContent>
     </Card>

@@ -33,6 +33,18 @@ class AIError(APIException):
         self.error_code = code or self.default_code
 
 
+class QuotaExceeded(APIException):
+    status_code = 429
+    default_detail = "Daily limit reached."
+    default_code = "daily_limit"
+
+    def __init__(self, detail=None, wait=None, resets_at=None):
+        super().__init__(detail)
+        self.wait = wait
+        self.resets_at = resets_at
+        self.error_code = self.default_code
+
+
 def first_message(data):
     """Pull one readable message out of DRF's error formats."""
     if isinstance(data, dict):
@@ -60,7 +72,12 @@ def custom_exception_handler(exc, context):
         )
 
     code = getattr(exc, "error_code", None) or getattr(exc, "default_code", "error")
-    if isinstance(exc, Throttled):
+    if isinstance(exc, QuotaExceeded):
+        message = str(exc.detail)
+        response.data = {"error": message, "code": "daily_limit", "retry_after": exc.wait, "resets_at": exc.resets_at}
+        if exc.wait:
+            response["Retry-After"] = str(exc.wait)
+    elif isinstance(exc, Throttled):
         wait = int(exc.wait or 60)
         message = f"You're sending requests too fast. Please wait {wait} seconds and try again."
         response.data = {"error": message, "code": "throttled", "retry_after": wait}

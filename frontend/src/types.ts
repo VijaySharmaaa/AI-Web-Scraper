@@ -17,6 +17,7 @@ export interface SummaryResponse {
   word_count: number;
   truncated: boolean;
   took_seconds: number;
+  usage?: Usage | null;
 }
 
 export interface HealthResponse {
@@ -25,6 +26,21 @@ export interface HealthResponse {
   providers: string[];
   models: string[];
   model_options?: ModelOption[];
+  usage?: Usage | null;
+  limits?: { max_url_length: number; summaries_per_day: number | null };
+  examples?: ExampleLink[];
+}
+
+export interface Usage {
+  limit: number;
+  used: number;
+  remaining: number;
+  resets_at: string;
+}
+
+export interface ExampleLink {
+  label: string;
+  url: string;
 }
 
 export interface ModelOption {

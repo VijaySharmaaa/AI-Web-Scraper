@@ -1,11 +1,10 @@
+from django.conf import settings
 from rest_framework import serializers
-
-from .services.scraper import MAX_URL_LENGTH
 
 
 class SummarizeRequestSerializer(serializers.Serializer):
     url = serializers.URLField(
-        max_length=MAX_URL_LENGTH,
+        max_length=settings.SCRAPER_MAX_URL_LENGTH,
         error_messages={
             "required": "Please enter a URL.",
             "blank": "Please enter a URL.",

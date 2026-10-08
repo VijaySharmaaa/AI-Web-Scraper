@@ -15,11 +15,10 @@ services:
         value: "False"
       - key: DJANGO_SECRET_KEY
         generateValue: true
-      # Render's load balancer is 1 proxy in front of the app, so the rate
-      # limiter can read the real visitor ip from X-Forwarded-For
       - key: NUM_PROXIES
         value: "1"
-      # add at least one of these in the Render dashboard
+      - key: SUMMARIES_PER_DAY
+        value: "3"
       - key: GEMINI_API_KEY
         sync: false
       - key: GROQ_API_KEY

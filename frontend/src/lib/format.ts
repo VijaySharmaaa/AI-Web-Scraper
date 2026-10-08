@@ -16,3 +16,11 @@ export function timeAgo(timestamp: number, now = Date.now()) {
 export function formatNumber(n: number) {
   return n.toLocaleString("en-US");
 }
+
+export function formatResetTime(iso: string, now = new Date()) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "tomorrow";
+  const time = date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const sameDay = date.toDateString() === now.toDateString();
+  return sameDay ? `at ${time}` : `tomorrow at ${time}`;
+}

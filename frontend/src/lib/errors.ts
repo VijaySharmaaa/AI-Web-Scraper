@@ -1,4 +1,5 @@
 import { ApiError } from "@/lib/api";
+import { formatResetTime } from "@/lib/format";
 
 export type ErrorTone = "warning" | "destructive";
 
@@ -112,6 +113,17 @@ export function describeError(err: unknown): ErrorInfo {
   }
 
   const { status, code } = err;
+  if (code === "daily_limit") {
+    return {
+      ...base,
+      retryAfter: undefined,
+      title: "Daily limit reached",
+      tone: "warning",
+      retryable: false,
+      editUrl: false,
+      hint: err.resetsAt ? `You can summarize more pages ${formatResetTime(err.resetsAt)}. Your history still works.` : undefined,
+    };
+  }
   const known = BY_CODE[code];
   if (known) return { ...base, ...known };
 

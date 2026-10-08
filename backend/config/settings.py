@@ -24,6 +24,14 @@ def env_list(name, default=""):
     return [x.strip() for x in os.getenv(name, default).split(",") if x.strip()]
 
 
+def env_int(name, default):
+    return int(os.getenv(name, "").strip() or default)
+
+
+def env_float(name, default):
+    return float(os.getenv(name, "").strip() or default)
+
+
 DEBUG = env_bool("DJANGO_DEBUG", False)
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "")
@@ -100,7 +108,7 @@ CACHES = {
 }
 
 # the api only accepts small json bodies
-DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024
+DATA_UPLOAD_MAX_MEMORY_SIZE = env_int("MAX_REQUEST_BODY_BYTES", 10 * 1024)
 
 # --- CORS ---
 # in production the frontend is served from the same domain, so no CORS is needed.
@@ -124,7 +132,7 @@ if env_bool("DJANGO_SECURE_HTTPS", bool(RENDER_HOST)):
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
     SECURE_SSL_REDIRECT = True
     SECURE_REDIRECT_EXEMPT = [r"^api/health/$"]  # health checks come over plain http
-    SECURE_HSTS_SECONDS = 60 * 60 * 24 * 30
+    SECURE_HSTS_SECONDS = env_int("DJANGO_HSTS_SECONDS", 60 * 60 * 24 * 30)
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
@@ -135,6 +143,59 @@ SILENCED_SYSTEM_CHECKS = [
     "security.W003",
     # HSTS preload is a permanent opt-in for the whole domain, leave it to the owner
     "security.W021",
+]
+
+SUMMARIES_PER_DAY = env_int("SUMMARIES_PER_DAY", 0)
+
+SCRAPER_MAX_URL_LENGTH = env_int("SCRAPER_MAX_URL_LENGTH", 2000)
+SCRAPER_MAX_TEXT_CHARS = env_int("SCRAPER_MAX_TEXT_CHARS", 15000)
+SCRAPER_MIN_TEXT_CHARS = env_int("SCRAPER_MIN_TEXT_CHARS", 50)
+SCRAPER_MAX_DOWNLOAD_BYTES = env_int("SCRAPER_MAX_DOWNLOAD_BYTES", 5 * 1024 * 1024)
+SCRAPER_MAX_REDIRECTS = env_int("SCRAPER_MAX_REDIRECTS", 5)
+SCRAPER_ALLOWED_PORTS = [int(p) for p in env_list("SCRAPER_ALLOWED_PORTS", "80,443,8080,8443")]
+SCRAPER_TIMEOUT = env_float("SCRAPER_TIMEOUT", 15)
+SCRAPER_CONNECT_TIMEOUT = env_float("SCRAPER_CONNECT_TIMEOUT", 8)
+SCRAPER_TOTAL_TIME_LIMIT = env_float("SCRAPER_TOTAL_TIME_LIMIT", 30)
+SCRAPER_USER_AGENT = os.getenv(
+    "SCRAPER_USER_AGENT",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+)
+SCRAPER_MAX_TITLE_CHARS = env_int("SCRAPER_MAX_TITLE_CHARS", 300)
+SCRAPER_FALLBACK_MIN_CHARS = env_int("SCRAPER_FALLBACK_MIN_CHARS", 200)
+SCRAPER_TEXT_TAGS = env_list("SCRAPER_TEXT_TAGS", "h1,h2,h3,h4,p,li,blockquote,pre,td")
+SCRAPER_IGNORED_TAGS = env_list(
+    "SCRAPER_IGNORED_TAGS",
+    "script,style,noscript,iframe,svg,canvas,form,nav,header,footer,aside,button,template,dialog",
+)
+
+GEMINI_API_URL = os.getenv(
+    "GEMINI_API_URL", "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+)
+GROQ_API_URL = os.getenv("GROQ_API_URL", "https://api.groq.com/openai/v1/chat/completions")
+GEMINI_MODELS = env_list("GEMINI_MODELS", os.getenv("GEMINI_MODEL", "gemini-flash-latest,gemini-flash-lite-latest"))
+GROQ_MODELS = env_list("GROQ_MODELS", "llama-3.3-70b-versatile,llama-3.1-8b-instant")
+AI_TIMEOUT = env_float("AI_TIMEOUT", 45)
+AI_CONNECT_TIMEOUT = env_float("AI_CONNECT_TIMEOUT", 10)
+AI_TOTAL_TIME_LIMIT = env_float("AI_TOTAL_TIME_LIMIT", 75)
+AI_MIN_TIME_FOR_ATTEMPT = env_float("AI_MIN_TIME_FOR_ATTEMPT", 5)
+AI_TEMPERATURE = env_float("AI_TEMPERATURE", 0.3)
+GEMINI_MAX_OUTPUT_TOKENS = env_int("GEMINI_MAX_OUTPUT_TOKENS", 8192)
+GROQ_MAX_OUTPUT_TOKENS = env_int("GROQ_MAX_OUTPUT_TOKENS", 1024)
+AI_PROMPT_FILE = Path(os.getenv("AI_PROMPT_FILE", BASE_DIR / "api" / "prompts" / "summary.txt"))
+
+EXAMPLE_LINKS = [
+    {"label": label.strip(), "url": url.strip()}
+    for label, _, url in (
+        item.partition("|")
+        for item in os.getenv(
+            "EXAMPLE_LINKS",
+            "Wikipedia: Web scraping|https://en.wikipedia.org/wiki/Web_scraping;"
+            "Paul Graham essay|https://www.paulgraham.com/greatwork.html;"
+            "MDN: HTTP|https://developer.mozilla.org/en-US/docs/Web/HTTP/Overview",
+        ).split(";")
+        if item.strip()
+    )
+    if url.strip()
 ]
 
 REST_FRAMEWORK = {

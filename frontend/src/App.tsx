@@ -15,7 +15,8 @@ import { describeError, type ErrorInfo } from "@/lib/errors";
 import { loadConsent, saveConsent, type Consent } from "@/lib/consent";
 import { AUTO, loadModelChoice, saveModelChoice } from "@/lib/model-choice";
 import { addToHistory, clearSavedHistory, createHistoryItem, loadHistory, saveHistory } from "@/lib/history";
-import type { HistoryItem, SummaryResponse } from "@/types";
+import { formatResetTime } from "@/lib/format";
+import type { HistoryItem, SummaryResponse, Usage } from "@/types";
 
 // the markdown renderer is the biggest dependency and only needed once there's a result
 const SummaryCard = lazy(() => import("@/components/summary-card").then((m) => ({ default: m.SummaryCard })));
@@ -34,6 +35,7 @@ export default function App() {
   const [history, setHistory] = useState<HistoryItem[]>(() => (loadConsent() === "granted" ? loadHistory() : []));
   const [health, setHealth] = useState<HealthState>({ status: "checking" });
   const [model, setModel] = useState(loadModelChoice);
+  const [usage, setUsage] = useState<Usage | null>(null);
   const online = useOnline();
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -58,6 +60,7 @@ export default function App() {
     try {
       const data = await getHealth();
       setHealth({ status: "ok", data });
+      setUsage(data.usage ?? null);
     } catch (err) {
       console.warn("[health] backend not reachable", err);
       setHealth({ status: "down" });
@@ -139,6 +142,7 @@ export default function App() {
       // functional update, the history may have changed while we were waiting
       const item = createHistoryItem(result);
       setHistory((items) => addToHistory(items, item));
+      if (result.usage !== undefined) setUsage(result.usage);
       setView({ status: "success", result, historyId: item.id, fromHistory: false });
       if (health.status === "down") checkHealth();
       if (result.failed_attempts.length > 0) {
@@ -155,6 +159,7 @@ export default function App() {
         return;
       }
       setView({ status: "error", url, error: describeError(err), key: Date.now() });
+      if (err instanceof ApiError && err.code === "daily_limit" && usage) setUsage({ ...usage, used: usage.limit, remaining: 0 });
       // couldn't even reach the server, show the banner too
       if (err instanceof ApiError && err.kind === "network") setHealth({ status: "down" });
     } finally {
@@ -206,6 +211,7 @@ export default function App() {
   let blockedReason: string | undefined;
   if (!online) blockedReason = "You're offline. Reconnect to summarize pages.";
   else if (health.status === "ok" && !health.data.ai_ready) blockedReason = "Summaries are unavailable until an AI API key is added on the server.";
+  else if (usage && usage.remaining === 0) blockedReason = `You've used today's ${usage.limit} summaries. More ${formatResetTime(usage.resets_at)}.`;
 
   return (
     <div className="flex min-h-dvh flex-col">
@@ -236,6 +242,9 @@ export default function App() {
               model={model}
               onModelChange={changeModel}
               modelOptions={modelOptions}
+              examples={health.status === "ok" ? health.data.examples ?? [] : []}
+              maxUrlLength={health.status === "ok" ? health.data.limits?.max_url_length : undefined}
+              usage={usage}
             />
 
             {/* screen readers hear when the result is ready */}

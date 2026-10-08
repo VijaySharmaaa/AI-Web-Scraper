@@ -1,7 +1,7 @@
+import { config } from "@/config";
 import type { HistoryItem, SummaryResponse } from "@/types";
 
 const KEY = "summary-history";
-const MAX_ITEMS = 12;
 
 // localStorage can throw (private mode, storage full, blocked cookies) so every
 // call is wrapped and history just quietly stops working in that case
@@ -26,7 +26,7 @@ export function clearSavedHistory() {
 
 export function saveHistory(items: HistoryItem[]) {
   try {
-    localStorage.setItem(KEY, JSON.stringify(items.slice(0, MAX_ITEMS)));
+    localStorage.setItem(KEY, JSON.stringify(items.slice(0, config.historyLimit)));
   } catch (err) {
     console.warn("could not save history", err);
   }
@@ -42,7 +42,7 @@ export function createHistoryItem(result: SummaryResponse): HistoryItem {
 
 export function addToHistory(items: HistoryItem[], item: HistoryItem): HistoryItem[] {
   // newest first, and only keep the latest summary for the same page
-  return [item, ...items.filter((i) => i.url !== item.url)].slice(0, MAX_ITEMS);
+  return [item, ...items.filter((i) => i.url !== item.url)].slice(0, config.historyLimit);
 }
 
 function isValidItem(item: unknown): item is HistoryItem {

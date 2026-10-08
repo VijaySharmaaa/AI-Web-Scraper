@@ -2,8 +2,9 @@ import socket
 from unittest.mock import patch
 
 import httpx
+from django.conf import settings
 from django.core.cache import cache
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from rest_framework.test import APIClient
 from rest_framework.throttling import ScopedRateThrottle
 
@@ -181,7 +182,7 @@ class FetchErrorTests(SimpleTestCase):
         body = b"<html><body>" + b"<p>" + b"word " * 2_000_000 + b"</p></body></html>"
         page = self.scrape_with(html_response(body))
         self.assertTrue(page["truncated"])
-        self.assertEqual(len(page["text"]), scraper.MAX_TEXT_LENGTH)
+        self.assertEqual(len(page["text"]), settings.SCRAPER_MAX_TEXT_CHARS)
 
     def test_page_without_text(self):
         with self.assertRaises(ScrapeError) as ctx:
@@ -202,8 +203,8 @@ def groq_ok(text="**TL;DR:** from groq"):
     return httpx.Response(200, json={"choices": [{"message": {"content": text}, "finish_reason": "stop"}]})
 
 
-@patch.dict("os.environ", {"GEMINI_API_KEY": "g-key", "GROQ_API_KEY": "q-key",
-                           "GEMINI_MODELS": "gem-a,gem-b", "GROQ_MODELS": "llama-a"})
+@override_settings(GEMINI_MODELS=["gem-a", "gem-b"], GROQ_MODELS=["llama-a"])
+@patch.dict("os.environ", {"GEMINI_API_KEY": "g-key", "GROQ_API_KEY": "q-key"})
 class AIFallbackTests(SimpleTestCase):
     def run_with(self, responses):
         """responses: list of httpx.Response in the order the models get called"""
@@ -400,7 +401,8 @@ class SummarizeApiTests(SimpleTestCase):
         self.assertEqual(res.json()["code"], "throttled")
         self.assertIn("retry_after", res.json())
 
-    @patch.dict("os.environ", {"GEMINI_API_KEY": "k", "GROQ_API_KEY": "", "GEMINI_MODELS": "gem-a,gem-b"})
+    @override_settings(GEMINI_MODELS=["gem-a", "gem-b"])
+    @patch.dict("os.environ", {"GEMINI_API_KEY": "k", "GROQ_API_KEY": ""})
     @patch("api.views.summarize", return_value=AI_RESULT)
     @patch("api.views.scrape_page", return_value=FAKE_PAGE)
     def test_chosen_model_is_passed_on(self, mock_scrape, mock_ai):
@@ -409,7 +411,8 @@ class SummarizeApiTests(SimpleTestCase):
         mock_ai.assert_called_once_with(FAKE_PAGE, preferred_model="gem-b")
         self.assertEqual(res.json()["requested_model"], "gem-b")
 
-    @patch.dict("os.environ", {"GEMINI_API_KEY": "k", "GROQ_API_KEY": "", "GEMINI_MODELS": "gem-a"})
+    @override_settings(GEMINI_MODELS=["gem-a"])
+    @patch.dict("os.environ", {"GEMINI_API_KEY": "k", "GROQ_API_KEY": ""})
     @patch("api.views.scrape_page", return_value=FAKE_PAGE)
     def test_unknown_model_is_rejected_before_scraping(self, mock_scrape):
         res = self.post({"url": "https://example.com", "model": "gpt-5"})
@@ -443,3 +446,95 @@ class SummarizeApiTests(SimpleTestCase):
         self.assertIn("default-src 'self'", res["Content-Security-Policy"])
         self.assertEqual(res["X-Frame-Options"], "DENY")
         self.assertEqual(res["X-Content-Type-Options"], "nosniff")
+
+
+@override_settings(SUMMARIES_PER_DAY=3)
+class DailyQuotaTests(SimpleTestCase):
+    def setUp(self):
+        cache.clear()
+        self.client = APIClient()
+
+    def post(self):
+        return self.client.post("/api/summarize/", {"url": "https://example.com"}, format="json")
+
+    @patch("api.views.summarize", return_value=AI_RESULT)
+    @patch("api.views.scrape_page", return_value=FAKE_PAGE)
+    def test_three_per_day(self, *_):
+        results = [self.post() for _ in range(3)]
+        self.assertEqual([r.status_code for r in results], [200, 200, 200])
+        self.assertEqual([r.json()["usage"]["remaining"] for r in results], [2, 1, 0])
+
+        res = self.post()
+        self.assertEqual(res.status_code, 429)
+        data = res.json()
+        self.assertEqual(data["code"], "daily_limit")
+        self.assertIn("resets_at", data)
+        self.assertGreater(data["retry_after"], 0)
+        self.assertEqual(res["Retry-After"], str(data["retry_after"]))
+
+    @patch("api.views.scrape_page", side_effect=ScrapeError("blocked", 422, "site_blocked"))
+    def test_failed_scrapes_dont_count(self, _):
+        for _ in range(5):
+            self.assertEqual(self.post().status_code, 422)
+        usage = self.client.get("/api/health/").json()["usage"]
+        self.assertEqual(usage["used"], 0)
+
+    @patch("api.views.summarize", side_effect=AIError("all failed", 502, "ai_failed"))
+    @patch("api.views.scrape_page", return_value=FAKE_PAGE)
+    def test_failed_ai_doesnt_count(self, *_):
+        self.post()
+        self.assertEqual(self.client.get("/api/health/").json()["usage"]["remaining"], 3)
+
+    def test_invalid_input_doesnt_count(self):
+        self.client.post("/api/summarize/", {"url": "nope"}, format="json")
+        self.assertEqual(self.client.get("/api/health/").json()["usage"]["used"], 0)
+
+    @patch("api.views.summarize", return_value=AI_RESULT)
+    @patch("api.views.scrape_page", return_value=FAKE_PAGE)
+    def test_each_ip_has_its_own_quota(self, *_):
+        for _ in range(3):
+            self.post()
+        other = APIClient(REMOTE_ADDR="10.9.8.7")
+        res = other.post("/api/summarize/", {"url": "https://example.com"}, format="json")
+        self.assertEqual(res.status_code, 200)
+
+    @patch("api.views.summarize", return_value=AI_RESULT)
+    @patch("api.views.scrape_page", return_value=FAKE_PAGE)
+    def test_new_day_resets(self, *_):
+        from datetime import datetime, timezone
+
+        day_one = datetime(2026, 10, 8, 23, 0, tzinfo=timezone.utc)
+        day_two = datetime(2026, 10, 9, 0, 5, tzinfo=timezone.utc)
+        with patch("api.quota._now", return_value=day_one):
+            for _ in range(3):
+                self.post()
+            self.assertEqual(self.post().status_code, 429)
+        with patch("api.quota._now", return_value=day_two):
+            self.assertEqual(self.post().status_code, 200)
+
+
+class NoQuotaTests(SimpleTestCase):
+    @override_settings(SUMMARIES_PER_DAY=0)
+    def test_unlimited_has_no_usage(self):
+        data = APIClient().get("/api/health/").json()
+        self.assertIsNone(data["usage"])
+        self.assertIsNone(data["limits"]["summaries_per_day"])
+
+    def test_health_shares_limits_and_examples(self):
+        data = APIClient().get("/api/health/").json()
+        self.assertEqual(data["limits"]["max_url_length"], settings.SCRAPER_MAX_URL_LENGTH)
+        self.assertTrue(all("label" in e and "url" in e for e in data["examples"]))
+
+
+class SettingsTests(SimpleTestCase):
+    @override_settings(SCRAPER_MAX_TEXT_CHARS=100)
+    def test_text_limit_comes_from_settings(self):
+        with fake_dns({"example.com": PUBLIC_IP}), fake_site(lambda r: html_response(b"<p>" + b"word " * 500 + b"</p>")):
+            page = scrape_page("https://example.com/")
+        self.assertEqual(len(page["text"]), 100)
+        self.assertTrue(page["truncated"])
+
+    @override_settings(SCRAPER_ALLOWED_PORTS=[443])
+    def test_ports_come_from_settings(self):
+        with fake_dns({"example.com": PUBLIC_IP}), self.assertRaises(ScrapeError):
+            scrape_page("http://example.com:8080/")

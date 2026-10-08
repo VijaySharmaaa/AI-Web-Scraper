@@ -3,18 +3,13 @@ import { ClipboardPaste, Link2, Sparkles, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ModelSelect } from "@/components/model-select";
+import { UsageMeter } from "@/components/usage-meter";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { checkUrl } from "@/lib/url";
 import { cn } from "@/lib/utils";
-import type { ModelOption } from "@/types";
-
-const EXAMPLES = [
-  { label: "Wikipedia: Web scraping", url: "https://en.wikipedia.org/wiki/Web_scraping" },
-  { label: "Paul Graham essay", url: "https://www.paulgraham.com/greatwork.html" },
-  { label: "MDN: HTTP", url: "https://developer.mozilla.org/en-US/docs/Web/HTTP/Overview" },
-];
+import type { ExampleLink, ModelOption, Usage } from "@/types";
 
 interface Props {
   value: string;
@@ -28,6 +23,9 @@ interface Props {
   model: string;
   onModelChange: (model: string) => void;
   modelOptions: ModelOption[];
+  examples: ExampleLink[];
+  maxUrlLength?: number;
+  usage?: Usage | null;
 }
 
 export function UrlForm({
@@ -41,10 +39,13 @@ export function UrlForm({
   model,
   onModelChange,
   modelOptions,
+  examples,
+  maxUrlLength,
+  usage,
 }: Props) {
   // only nag about the url after the user tried to submit it
   const [touched, setTouched] = useState(false);
-  const check = checkUrl(value);
+  const check = checkUrl(value, maxUrlLength);
   const showError = touched && !check.ok && value.trim() !== "";
   const canPaste = typeof navigator !== "undefined" && !!navigator.clipboard?.readText;
 
@@ -96,7 +97,7 @@ export function UrlForm({
             aria-invalid={showError || undefined}
             aria-describedby={showError ? "url-error" : "url-help"}
             className="h-11 pr-20 pl-9 text-base md:text-sm"
-            maxLength={2000}
+            maxLength={maxUrlLength}
           />
           <div className="absolute top-1/2 right-1.5 flex -translate-y-1/2 items-center gap-0.5">
             {value && !loading && (
@@ -137,8 +138,13 @@ export function UrlForm({
         </Button>
       </div>
 
-      {modelOptions.length > 0 && (
-        <ModelSelect value={model} onChange={onModelChange} options={modelOptions} disabled={loading} />
+      {(modelOptions.length > 0 || usage) && (
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+          {modelOptions.length > 0 && (
+            <ModelSelect value={model} onChange={onModelChange} options={modelOptions} disabled={loading} />
+          )}
+          {usage && <UsageMeter usage={usage} />}
+        </div>
       )}
 
       <p
@@ -158,10 +164,10 @@ export function UrlForm({
             )}
       </p>
 
-      {showExamples && (
+      {showExamples && examples.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="text-muted-foreground">Try:</span>
-          {EXAMPLES.map((ex) => (
+          {examples.map((ex) => (
             <Button
               key={ex.url}
               type="button"
