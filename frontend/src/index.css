@@ -3,9 +3,6 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* ---- shadcn/ui themes ---- */
-/* Neutral is the default, the other base colors are picked in the theme menu (data-color on <html>) */
-
 :root {
   --radius: 0.625rem;
   --background: oklch(1 0 0);
@@ -246,7 +243,6 @@ html.dark[data-color="gray"] {
   }
 }
 
-/* markdown summary */
 .prose-summary {
   @apply text-[15px] leading-7 text-foreground/90;
 }
@@ -282,7 +278,6 @@ html.dark[data-color="gray"] {
   @apply mb-0;
 }
 
-/* "Save as PDF" through the print dialog: only the summary card is printed */
 @media print {
   html.print-summary body * {
     visibility: hidden;

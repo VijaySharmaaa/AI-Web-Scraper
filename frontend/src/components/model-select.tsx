@@ -21,10 +21,8 @@ interface Props {
 }
 
 export function ModelSelect({ value, onChange, options, disabled }: Props) {
-  // never show a model the server doesn't offer (e.g. an old saved choice)
   const current = value === AUTO || options.some((o) => o.model === value) ? value : AUTO;
 
-  // group the models by provider, keeping the server's order
   const groups = new Map<string, string[]>();
   for (const { provider, model } of options) {
     groups.set(provider, [...(groups.get(provider) ?? []), model]);
@@ -38,7 +36,6 @@ export function ModelSelect({ value, onChange, options, disabled }: Props) {
       </label>
       <Select value={current} onValueChange={onChange} disabled={disabled || options.length === 0}>
         <SelectTrigger id="model-select" size="sm" className="min-w-0 max-w-[16rem]" aria-label="AI model">
-          {/* render the label ourselves, radix only knows it once the list has been opened */}
           <SelectValue>
             {current === AUTO ? "Auto" : <span className="truncate font-mono text-xs">{current}</span>}
           </SelectValue>

@@ -43,8 +43,6 @@ export function SummaryCard({ result, onNew, fromHistory }: Props) {
   }
 
   async function downloadPdf() {
-    // the built-in pdf fonts can't draw e.g. hindi or chinese, the browser's
-    // own "Save as PDF" can, so use that for those pages
     if (!fitsBuiltInFont(result.title + result.summary)) {
       toast("Choose “Save as PDF” in the print window", {
         description: "This page uses characters the quick PDF export can't draw.",
@@ -85,17 +83,14 @@ export function SummaryCard({ result, onNew, fromHistory }: Props) {
       </CardHeader>
 
       <CardContent className="py-6">
-        {/* react-markdown doesn't render raw html, so AI output can't inject scripts */}
         <div className="prose-summary">
           <Markdown
             components={{
-              // links written by the AI open in a new tab and don't pass on our page
               a: ({ href, children }) => (
                 <a href={href} target="_blank" rel="noopener noreferrer nofollow">
                   {children}
                 </a>
               ),
-              // no images from AI output, they could be used for tracking
               img: () => null,
             }}
           >
@@ -115,7 +110,7 @@ export function SummaryCard({ result, onNew, fromHistory }: Props) {
 
       <Separator />
 
-      <CardFooter className="flex-col items-stretch gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+      <CardFooter className="flex-col items-stretch gap-4 py-4">
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -162,16 +157,16 @@ export function SummaryCard({ result, onNew, fromHistory }: Props) {
           </span>
         </div>
 
-        <div className="flex flex-wrap gap-2" data-print-hide>
-          <Button variant="outline" size="sm" onClick={copy} className="flex-1 sm:flex-none">
+        <div className="flex flex-wrap gap-2 sm:justify-end" data-print-hide>
+          <Button variant="outline" hover="info" size="sm" onClick={copy} className="flex-1 sm:flex-none">
             {copied ? <Check /> : <Copy />}
             {copied ? "Copied" : "Copy"}
           </Button>
-          <Button variant="outline" size="sm" onClick={downloadPdf} disabled={makingPdf} className="flex-1 sm:flex-none">
+          <Button variant="outline" hover="info" size="sm" onClick={downloadPdf} disabled={makingPdf} className="flex-1 sm:flex-none">
             {makingPdf ? <Spinner aria-hidden="true" role="presentation" /> : <Download />}
             PDF
           </Button>
-          <Button size="sm" onClick={onNew} className="flex-1 sm:flex-none">
+          <Button size="sm" hover="success" onClick={onNew} className="flex-1 sm:flex-none">
             <Plus />
             New summary
           </Button>

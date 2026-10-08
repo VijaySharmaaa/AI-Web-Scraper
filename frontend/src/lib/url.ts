@@ -1,4 +1,3 @@
-// Same rules the backend uses, so people get feedback before sending anything.
 
 export type UrlCheck = { ok: true; url: string } | { ok: false; message: string };
 
@@ -7,7 +6,6 @@ import { config } from "@/config";
 export function normalizeUrl(input: string): string {
   const trimmed = input.trim();
   if (!trimmed) return "";
-  // let people paste "example.com/page" without the https://
   return /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
 }
 

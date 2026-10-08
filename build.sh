@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# build script used by Render (also works locally)
 set -o errexit
 
 echo "--- building frontend ---"

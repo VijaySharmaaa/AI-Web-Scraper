@@ -1,15 +1,12 @@
-# python
 __pycache__/
 *.pyc
 .venv/
 venv/
 backend/staticfiles/
 
-# node
 node_modules/
 frontend/dist/
 
-# secrets
 .env
 
 *.log

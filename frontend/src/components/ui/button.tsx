@@ -18,6 +18,14 @@ const buttonVariants = cva(
         ghost: "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
         link: "text-primary underline-offset-4 hover:underline",
       },
+      hover: {
+        none: "",
+        danger:
+          "hover:bg-destructive/10 hover:text-destructive hover:border-destructive/50 dark:hover:bg-destructive/20 dark:hover:border-destructive/60",
+        success:
+          "hover:bg-emerald-600 hover:text-white hover:border-emerald-600 dark:hover:bg-emerald-500 dark:hover:text-emerald-950 dark:hover:border-emerald-500",
+        info: "hover:bg-sky-500/10 hover:text-sky-700 hover:border-sky-500/50 dark:hover:bg-sky-400/15 dark:hover:text-sky-300 dark:hover:border-sky-400/50",
+      },
       size: {
         default: "h-9 px-4 py-2 has-[>svg]:px-3",
         sm: "h-8 rounded-md gap-1.5 px-3 has-[>svg]:px-2.5",
@@ -28,6 +36,7 @@ const buttonVariants = cva(
     },
     defaultVariants: {
       variant: "default",
+      hover: "none",
       size: "default",
     },
   }
@@ -36,6 +45,7 @@ const buttonVariants = cva(
 function Button({
   className,
   variant,
+  hover,
   size,
   asChild = false,
   ...props
@@ -45,7 +55,7 @@ function Button({
   }) {
   const Comp = asChild ? Slot : "button";
 
-  return <Comp data-slot="button" className={cn(buttonVariants({ variant, size, className }))} {...props} />;
+  return <Comp data-slot="button" className={cn(buttonVariants({ variant, hover, size, className }))} {...props} />;
 }
 
 export { Button, buttonVariants };

@@ -24,10 +24,8 @@ class HealthView(APIView):
         return Response({
             "status": "ok",
             "ai_ready": bool(models),
-            # only names, never the keys
             "providers": sorted({m["provider"] for m in models}),
             "models": [m["model"] for m in models],
-            # same list with the provider of each model, for the model picker
             "model_options": models,
             "usage": quota.usage(request),
             "limits": {
@@ -39,10 +37,6 @@ class HealthView(APIView):
 
 
 class SummarizeView(APIView):
-    """
-    POST /api/summarize/
-    body: {"url": "https://example.com/article"}
-    """
 
     throttle_scope = "summarize"
 
@@ -52,7 +46,6 @@ class SummarizeView(APIView):
         url = serializer.validated_data["url"]
         model = serializer.validated_data.get("model") or None
 
-        # check the model before spending time on scraping
         if model and model not in {m["model"] for m in available_models()}:
             raise AIError(f"The model '{model}' isn't available on this server.", 400, "invalid_model")
 

@@ -1,6 +1,3 @@
-// the base color themes from shadcn/ui. The css for each one is in index.css
-// (html[data-color="..."]), these are just the names and the primary color
-// in light / dark mode for the preview dots.
 
 export const BASE_COLORS = [
   { name: "neutral", label: "Neutral", swatch: "oklch(0.205 0 0)", swatchDark: "oklch(0.922 0 0)" },

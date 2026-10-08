@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 
-/** Counts down from `seconds` to 0. Pass 0 / undefined to stop. */
 export function useCountdown(seconds: number | undefined, key?: unknown) {
   const [left, setLeft] = useState(seconds ?? 0);
 

@@ -76,7 +76,6 @@ describe("history consent", () => {
     expect(localStorage.getItem("summary-history")).toBeNull();
     expect(screen.getByText(/History isn't saved on this device/)).toBeInTheDocument();
 
-    // changing their mind saves what's already there
     await user.click(screen.getByRole("button", { name: "Save it" }));
     expect(JSON.parse(localStorage.getItem("summary-history") ?? "[]")).toHaveLength(1);
   });

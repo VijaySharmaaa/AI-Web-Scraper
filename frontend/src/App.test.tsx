@@ -67,11 +67,9 @@ describe("App", () => {
     expect(screen.getByText("Google Gemini · gemini-flash-latest")).toBeInTheDocument();
     expect(screen.getByText(/only the first part was used/)).toBeInTheDocument();
 
-    // https:// was added before sending
     const call = fetchMock.mock.calls.find(([u]) => String(u).includes("summarize"));
     expect(JSON.parse(String(call?.[1]?.body))).toEqual({ url: "https://en.wikipedia.org/wiki/Web_scraping" });
 
-    // saved to history
     const history = screen.getByRole("region", { name: /recent summaries/i });
     expect(within(history).getByText(RESULT.title)).toBeInTheDocument();
   });

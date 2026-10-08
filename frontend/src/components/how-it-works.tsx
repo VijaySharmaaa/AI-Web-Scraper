@@ -10,7 +10,6 @@ const STEPS = [
 ];
 
 interface Props {
-  /** model names from /api/health/, in the order they're tried */
   models?: string[];
 }
 

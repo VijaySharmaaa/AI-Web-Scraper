@@ -7,7 +7,6 @@ import type { ErrorInfo } from "@/lib/errors";
 
 interface Props {
   error: ErrorInfo;
-  /** changes every time a new error happens, restarts the countdown */
   errorKey: number;
   onRetry: () => void;
   onEdit: () => void;
@@ -26,13 +25,13 @@ export function ErrorCard({ error, errorKey, onRetry, onEdit }: Props) {
         {error.hint && <p className="opacity-80">{error.hint}</p>}
         <div className="mt-2 flex flex-wrap gap-2">
           {error.retryable && (
-            <Button size="sm" variant="outline" onClick={onRetry} disabled={wait > 0}>
+            <Button size="sm" variant="outline" hover="info" onClick={onRetry} disabled={wait > 0}>
               <RotateCw />
               {wait > 0 ? `Try again in ${wait}s` : "Try again"}
             </Button>
           )}
           {(error.editUrl || !error.retryable) && (
-            <Button size="sm" variant={error.retryable ? "ghost" : "outline"} onClick={onEdit}>
+            <Button size="sm" variant={error.retryable ? "ghost" : "outline"} hover="info" onClick={onEdit}>
               <Pencil />
               Edit URL
             </Button>

@@ -29,9 +29,7 @@ function read(key: string) {
 function write(key: string, value: string) {
   try {
     localStorage.setItem(key, value);
-  } catch {
-    // not saved, fine
-  }
+  } catch {}
 }
 
 function readSavedTheme(): Theme {
@@ -49,7 +47,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [color, setColorState] = useState<ThemeColor>(readSavedColor);
   const [systemDark, setSystemDark] = useState(systemPrefersDark);
 
-  // follow the OS setting when it changes
   useEffect(() => {
     const media = window.matchMedia?.("(prefers-color-scheme: dark)");
     if (!media) return;

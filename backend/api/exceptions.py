@@ -16,7 +16,6 @@ class ScrapeError(APIException):
         super().__init__(detail)
         if status_code:
             self.status_code = status_code
-        # short machine readable reason, the frontend picks its hint from this
         self.error_code = code or self.default_code
 
 
@@ -29,7 +28,6 @@ class AIError(APIException):
         super().__init__(detail)
         if status_code:
             self.status_code = status_code
-        # short machine readable reason, the frontend picks its hint from this
         self.error_code = code or self.default_code
 
 
@@ -46,7 +44,6 @@ class QuotaExceeded(APIException):
 
 
 def first_message(data):
-    """Pull one readable message out of DRF's error formats."""
     if isinstance(data, dict):
         if "detail" in data:
             return str(data["detail"])
@@ -58,13 +55,8 @@ def first_message(data):
 
 
 def custom_exception_handler(exc, context):
-    """
-    Return every error as {"error": "...", "code": "..."} so the frontend
-    only has to check one shape.
-    """
     response = exception_handler(exc, context)
     if response is None:
-        # real crash - log the traceback but don't leak details to the user
         logger.exception("Unhandled error in %s", context.get("view"))
         return Response(
             {"error": "Something went wrong on our side. Please try again.", "code": "server_error"},

@@ -7,17 +7,25 @@ model, and you get a short summary back (a TL;DR plus key points).
 
 ## Features
 
-- **Clean, responsive UI**: React + TypeScript, Tailwind CSS and shadcn/ui components
-- **Themes**: light / dark / system mode plus shadcn's base colors (Neutral, Zinc, Stone, Slate, Gray)
-  from the palette button in the header. Neutral is the default. Your choice is remembered in the browser
-- **Every state handled**: loading steps with a cancel button, specific error messages
-  (site blocked, page not found, not a web page, JavaScript-only page, rate limits...) with
-  "Try again" / "Edit URL" actions, an offline banner, and a banner when the server is down or has no AI key
-- **AI fallback**: tries several free models in order (Gemini, then Groq / Llama) and shows
-  which model wrote each summary, plus which ones failed before it
-- **History**: your last 12 summaries are saved in the browser, so you can reopen them instantly
-- **Copy** the summary, keyboard shortcuts (`/` or `Ctrl+K` to focus, `Esc` to cancel)
+- **Clean, responsive UI**: React + TypeScript, Tailwind CSS and shadcn/ui components. Two columns on wide
+  screens (results + a sidebar with history and "how it works"), one column on phones
+- **Themes**: light / dark / system mode and shadcn's base colors (Neutral, Zinc, Stone, Slate, Gray)
+  from the palette button in the header. Neutral is the default
+- **Pick the AI model**: Auto (best available) or any model the server has a key for. If the picked
+  model is busy, the next one answers and the result says so
+- **Every state handled**: loading steps with a cancel button, specific error messages (site blocked,
+  page not found, not a web page, JavaScript-only page, rate limits...) with "Try again" / "Edit URL"
+  actions, and banners when you're offline, the server is down or has no AI key
+- **History with consent**: the first visit asks before saving anything. With "Allow" your last
+  summaries are kept in the browser, with "No thanks" only until the tab is closed.
+  "Storage settings" in the footer changes the answer
+- **Copy or download as PDF**: the PDF has the title, link, model, date and the summary.
+  Pages in other alphabets use the browser's "Save as PDF" so every character comes out right
+- **Daily limit**: a configurable number of summaries per visitor per day (3 on the live demo).
+  Failed attempts don't count, and the app shows how many are left and when the limit resets
+- **Colored hover states**: red for remove / clear / cancel, green for the main actions, blue for the rest
 - **Secure by default**: SSRF protection, rate limiting, security headers, CSP (see [Security](#security))
+- **Configurable**: limits, timeouts, models, URLs and the AI prompt all come from environment variables
 
 ## Tech stack
 
@@ -59,7 +67,9 @@ AI-Web-Scraper/
 │       ├── serializers.py       # request / response serializers
 │       ├── exceptions.py        # ScrapeError, AIError + JSON error handler
 │       ├── urls.py
+│       ├── quota.py             # summaries per day
 │       ├── tests.py
+│       ├── prompts/summary.txt  # instructions for the AI
 │       └── services/
 │           ├── scraper.py       # safe download + text extraction
 │           └── ai.py            # Gemini / Groq calls with fallback
@@ -166,8 +176,11 @@ The project is set up for the shadcn CLI, e.g. `npx shadcn@latest add dropdown-m
 Request:
 
 ```json
-{ "url": "https://en.wikipedia.org/wiki/Web_scraping" }
+{ "url": "https://en.wikipedia.org/wiki/Web_scraping", "model": "llama-3.3-70b-versatile" }
 ```
+
+`model` is optional. Leave it out (or send `""`) for automatic choice; otherwise it must be one of
+the models from `/api/health/`. The chosen model is tried first and the others stay as fallback.
 
 Response `200`:
 
@@ -181,10 +194,12 @@ Response `200`:
   "failed_attempts": [
     { "provider": "Google Gemini", "model": "gemini-flash-latest", "error": "rate limited / quota used up" }
   ],
+  "requested_model": "gemini-flash-latest",
   "char_count": 24311,
   "word_count": 4120,
   "truncated": true,
-  "took_seconds": 4.3
+  "took_seconds": 4.3,
+  "usage": { "limit": 3, "used": 1, "remaining": 2, "resets_at": "2026-10-09T00:00:00+00:00" }
 }
 ```
 
@@ -196,13 +211,15 @@ Rate limit errors also include `retry_after` (seconds).
 | 400 | `validation_error`, `invalid_url`, `private_address` |
 | 415 | `not_html` |
 | 422 | `dns_not_found`, `site_blocked`, `page_not_found`, `no_text`, `ai_refused` |
-| 429 | `throttled` (our limit), `ai_quota` (AI free tier used up) |
+| 400 | `invalid_model` |
+| 429 | `daily_limit` (summaries per day used up, with `resets_at`), `throttled` (too many requests per minute), `ai_quota` (AI free tier used up) |
 | 502 / 504 | `site_unreachable`, `site_error`, `site_timeout`, `ai_failed` |
 | 503 | `ai_not_configured`, `ai_bad_key` |
 
 ### `GET /api/health/`
 
-Returns `{"status": "ok", "ai_ready": true, "providers": [...], "models": [...]}` (never the keys).
+Returns whether AI is set up, the models in fallback order (with their provider), your usage for
+today, the limits the frontend should use and the example links. Never returns API keys.
 
 ## Security
 
@@ -213,7 +230,8 @@ Returns `{"status": "ok", "ai_ready": true, "providers": [...], "models": [...]}
   Every redirect is checked again.
 - **Resource limits**: max 5 MB download, 30 s total for the page, 75 s total for the AI,
   10 KB request bodies, at most 5 redirects.
-- **Rate limiting**: 10 summaries per minute per IP (configurable), shared between workers.
+- **Rate limiting**: a daily limit (3 per IP on the live demo) and 10 requests per minute per IP, both
+  configurable and shared between workers.
 - **Headers**: Content-Security-Policy (no inline scripts), `X-Frame-Options: DENY`, `nosniff`,
   Referrer-Policy, Permissions-Policy, HTTPS redirect + HSTS when deployed.
 - **CORS**: closed by default (the app is same-origin), only opened for origins you list.
@@ -237,24 +255,32 @@ The repo includes `render.yaml`, so deploying is mostly clicking buttons:
 Note: the free Render plan sleeps after 15 minutes without traffic, so the first request after
 that can take around 30 seconds (the app shows a "Can't reach the server" banner with a retry button meanwhile).
 
-## Environment variables
+The live demo allows 3 summaries per visitor per day (`SUMMARIES_PER_DAY` in `render.yaml`).
 
-All of these go in `backend/.env` locally, or in the Render dashboard when deployed.
+## Configuration
 
-| Variable | Required | Default | Notes |
-|----------|----------|---------|-------|
-| `GEMINI_API_KEY` | one of the two | - | free key from Google AI Studio |
-| `GROQ_API_KEY` | one of the two | - | free key from Groq, used as fallback |
-| `GEMINI_MODELS` | no | `gemini-flash-latest,gemini-flash-lite-latest` | tried in this order |
-| `GROQ_MODELS` | no | `llama-3.3-70b-versatile,llama-3.1-8b-instant` | tried after Gemini |
-| `DJANGO_DEBUG` | no | `False` | set `True` for local development |
-| `DJANGO_SECRET_KEY` | in prod | random | Render generates one |
-| `DJANGO_ALLOWED_HOSTS` | no | `localhost,127.0.0.1` | comma separated (Render's host is added automatically) |
-| `CORS_ALLOWED_ORIGINS` | no | localhost:5173 in debug | only if the frontend is on another domain |
-| `THROTTLE_SUMMARIZE` | no | `10/min` | summaries per IP |
-| `NUM_PROXIES` | no | `0` | proxies in front of the app (Render: `1`), for the real client IP |
+Nothing is hardcoded: every limit, timeout, URL and model list has a default that can be changed with
+an environment variable. Locally they go in `backend/.env` (all of them are listed with their defaults
+in [`backend/.env.example`](backend/.env.example)), on Render in the dashboard.
 
-The frontend only needs `VITE_API_URL` (in `frontend/.env`) if you host it separately from the backend.
+The most useful ones:
+
+| Variable | Default | Notes |
+|----------|---------|-------|
+| `GEMINI_API_KEY` / `GROQ_API_KEY` | - | at least one is needed |
+| `GEMINI_MODELS` / `GROQ_MODELS` | see `.env.example` | models to offer, in fallback order |
+| `SUMMARIES_PER_DAY` | `0` (unlimited) | per visitor IP, resets at midnight UTC. `3` on Render |
+| `THROTTLE_SUMMARIZE` | `10/min` | burst limit per IP |
+| `SCRAPER_MAX_TEXT_CHARS` | `15000` | how much page text is sent to the AI |
+| `SCRAPER_TOTAL_TIME_LIMIT` / `AI_TOTAL_TIME_LIMIT` | `30` / `75` | seconds |
+| `AI_PROMPT_FILE` | `api/prompts/summary.txt` | the instructions given to the AI |
+| `EXAMPLE_LINKS` | 3 links | "label\|url" pairs separated by `;` |
+| `DJANGO_DEBUG` | `False` | `True` for local development |
+| `NUM_PROXIES` | `0` | proxies in front of the app (Render: `1`), for the real visitor IP |
+
+The frontend reads `VITE_*` variables from `frontend/.env` (see
+[`frontend/.env.example`](frontend/.env.example)): app name, API URL (only if hosted separately),
+the GitHub link, request timeout and history size.
 
 ## Limitations
 

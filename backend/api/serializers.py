@@ -13,7 +13,6 @@ class SummarizeRequestSerializer(serializers.Serializer):
         },
     )
 
-    # optional, one of the models from /api/health/. Empty = automatic order
     model = serializers.RegexField(
         r"^[A-Za-z0-9._:/-]+$",
         max_length=100,
@@ -23,7 +22,6 @@ class SummarizeRequestSerializer(serializers.Serializer):
     )
 
     def to_internal_value(self, data):
-        # let people paste "example.com" without the https://
         url = data.get("url") if hasattr(data, "get") else None
         if isinstance(url, str):
             url = url.strip()

@@ -35,7 +35,7 @@ let fetchMock: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
   vi.spyOn(console, "log").mockImplementation(() => {});
-  localStorage.setItem("storage-consent", "denied"); // keep the banner out of the way
+  localStorage.setItem("storage-consent", "denied");
   fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
     const body = String(input).includes("health") ? HEALTH : RESULT;
     return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));

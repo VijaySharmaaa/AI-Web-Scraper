@@ -8,16 +8,13 @@ export interface ErrorInfo {
   message: string;
   hint?: string;
   tone: ErrorTone;
-  /** does trying the same url again have a chance of working? */
   retryable: boolean;
-  /** should the user fix the url instead? */
   editUrl: boolean;
   retryAfter?: number;
 }
 
 type Preset = Omit<ErrorInfo, "message" | "retryAfter">;
 
-// error codes come from the backend (api/exceptions.py and the services)
 const BY_CODE: Record<string, Preset> = {
   throttled: { title: "Slow down a little", tone: "warning", retryable: true, editUrl: false },
   validation_error: { title: "Check the URL", tone: "warning", retryable: false, editUrl: true },
@@ -127,7 +124,6 @@ export function describeError(err: unknown): ErrorInfo {
   const known = BY_CODE[code];
   if (known) return { ...base, ...known };
 
-  // fall back to the status code for anything without a known code
   if (status === 429) return { ...base, title: "Slow down a little", tone: "warning", retryable: true, editUrl: false };
   if (status === 400) return { ...base, title: "Check the URL", tone: "warning", retryable: false, editUrl: true };
   if (status === 415) return { ...base, ...BY_CODE.not_html };

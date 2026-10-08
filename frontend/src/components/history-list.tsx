@@ -13,7 +13,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { timeAgo } from "@/lib/format";
 import { hostnameOf } from "@/lib/url";
 import { cn } from "@/lib/utils";
@@ -40,7 +40,6 @@ export function HistoryList({ items, consent, onAllowSaving, activeId, onSelect,
   );
 
   if (items.length === 0) {
-    // placeholder only in the desktop sidebar, on phones it would just push content down
     return (
       <section aria-labelledby="history-heading" className="hidden space-y-3 lg:block">
         <h2 id="history-heading" className="flex h-7 items-center gap-2 text-sm font-medium text-muted-foreground">
@@ -64,7 +63,7 @@ export function HistoryList({ items, consent, onAllowSaving, activeId, onSelect,
         </h2>
         <AlertDialog>
           <AlertDialogTrigger asChild>
-            <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground">
+            <Button variant="ghost" hover="danger" size="sm" className="h-7 text-xs text-muted-foreground">
               <Trash2 />
               Clear all
             </Button>
@@ -80,8 +79,8 @@ export function HistoryList({ items, consent, onAllowSaving, activeId, onSelect,
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={onClear} className="bg-destructive text-white hover:bg-destructive/90">
+              <AlertDialogCancel className={buttonVariants({ variant: "outline", hover: "info" })}>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={onClear} className={buttonVariants({ variant: "destructive" })}>
                 Clear history
               </AlertDialogAction>
             </AlertDialogFooter>
@@ -107,6 +106,7 @@ export function HistoryList({ items, consent, onAllowSaving, activeId, onSelect,
             </button>
             <Button
               variant="ghost"
+              hover="danger"
               size="icon-sm"
               className="mr-2 text-muted-foreground opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
               onClick={() => onRemove(item.id)}

@@ -64,6 +64,7 @@ export function ThemeMenu() {
           {(color !== DEFAULT_COLOR || theme !== "system") && (
             <Button
               variant="ghost"
+              hover="info"
               size="icon-sm"
               aria-label="Reset theme"
               onClick={() => {

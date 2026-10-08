@@ -9,8 +9,6 @@ import { useElapsed } from "@/hooks/use-elapsed";
 import { hostnameOf } from "@/lib/url";
 import { cn } from "@/lib/utils";
 
-// the backend does all of this in one request, so the steps are a rough
-// guess based on time - they just show the user that things are moving
 const STEPS = [
   { label: "Fetching the page", icon: Globe, until: config.loadingSteps.fetchSeconds },
   { label: "Extracting the main text", icon: FileText, until: config.loadingSteps.extractSeconds },
@@ -29,7 +27,7 @@ export function LoadingCard({ url, onCancel }: { url: string; onCancel: () => vo
             <p className="font-medium">Loading...</p>
             <p className="truncate text-sm text-muted-foreground">Summarizing {hostnameOf(url)}</p>
           </div>
-          <Button variant="outline" size="sm" onClick={onCancel}>
+          <Button variant="outline" hover="danger" size="sm" onClick={onCancel}>
             Cancel
           </Button>
         </div>

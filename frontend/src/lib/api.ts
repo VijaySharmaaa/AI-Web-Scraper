@@ -1,11 +1,6 @@
 import { config } from "@/config";
 import type { HealthResponse, SummaryResponse } from "@/types";
 
-// empty string = same origin (vite proxy in dev, django serves the app in prod)
-
-// a bit longer than the backend needs in the worst case (scrape + several AI fallbacks)
-
-
 export type ApiErrorKind = "network" | "timeout" | "aborted" | "http";
 
 export class ApiError extends Error {
@@ -30,7 +25,6 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init: RequestInit = {}, signal?: AbortSignal): Promise<T> {
-  // our own controller so we can time out AND let the caller cancel
   const controller = new AbortController();
   let timedOut = false;
   const timer = setTimeout(() => {
@@ -85,7 +79,6 @@ async function request<T>(path: string, init: RequestInit = {}, signal?: AbortSi
   return data as T;
 }
 
-/** model: one of the server's models, or undefined to let the server pick (auto) */
 export function summarizeUrl(url: string, signal?: AbortSignal, model?: string) {
   const body = model ? { url, model } : { url };
   return request<SummaryResponse>("/api/summarize/", { method: "POST", body: JSON.stringify(body) }, signal);

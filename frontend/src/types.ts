@@ -6,7 +6,6 @@ export interface FailedAttempt {
 
 export interface SummaryResponse {
   title: string;
-  /** the model the user picked, null for automatic (older history items don't have it) */
   requested_model?: string | null;
   url: string;
   summary: string;

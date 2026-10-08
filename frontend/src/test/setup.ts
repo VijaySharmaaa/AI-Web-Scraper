@@ -8,7 +8,6 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-// jsdom doesn't have these
 window.matchMedia ??= ((query: string) => ({
   matches: false,
   media: query,
@@ -27,7 +26,6 @@ class ResizeObserverStub {
 }
 window.ResizeObserver ??= ResizeObserverStub as unknown as typeof ResizeObserver;
 
-// radix select uses these, jsdom doesn't have them
 Element.prototype.hasPointerCapture ??= () => false;
 Element.prototype.setPointerCapture ??= () => {};
 Element.prototype.releasePointerCapture ??= () => {};

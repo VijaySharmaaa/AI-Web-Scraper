@@ -7,7 +7,6 @@ interface Props {
   onDeny: () => void;
 }
 
-/** Asks before anything is saved on the visitor's device. */
 export function ConsentBanner({ onAllow, onDeny }: Props) {
   return (
     <div
@@ -33,10 +32,10 @@ export function ConsentBanner({ onAllow, onDeny }: Props) {
           </div>
         </div>
         <div className="mt-4 flex gap-2 sm:justify-end">
-          <Button variant="outline" size="sm" className="flex-1 sm:flex-none" onClick={onDeny}>
+          <Button variant="outline" hover="danger" size="sm" className="flex-1 sm:flex-none" onClick={onDeny}>
             No thanks
           </Button>
-          <Button size="sm" className="flex-1 sm:flex-none" onClick={onAllow}>
+          <Button size="sm" hover="success" className="flex-1 sm:flex-none" onClick={onAllow}>
             Allow
           </Button>
         </div>

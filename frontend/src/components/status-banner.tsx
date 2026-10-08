@@ -15,7 +15,6 @@ interface Props {
   onRecheck: () => void;
 }
 
-/** Problems we can spot before the user even clicks Summarize. */
 export function StatusBanner({ online, health, onRecheck }: Props) {
   if (!online) {
     return (
@@ -34,7 +33,7 @@ export function StatusBanner({ online, health, onRecheck }: Props) {
         <AlertTitle>Can't reach the server</AlertTitle>
         <AlertDescription>
           <p>The backend isn't responding. If it was asleep it can take ~30 seconds to wake up.</p>
-          <Button variant="outline" size="sm" className="mt-1" onClick={onRecheck}>
+          <Button variant="outline" hover="info" size="sm" className="mt-1" onClick={onRecheck}>
             <RefreshCw /> Check again
           </Button>
         </AlertDescription>
@@ -54,7 +53,7 @@ export function StatusBanner({ online, health, onRecheck }: Props) {
             <code className="rounded bg-black/5 px-1 py-0.5 text-xs dark:bg-white/10">backend/.env</code> and restart
             the server.
           </p>
-          <Button variant="outline" size="sm" className="mt-1" onClick={onRecheck}>
+          <Button variant="outline" hover="info" size="sm" className="mt-1" onClick={onRecheck}>
             <RefreshCw /> Check again
           </Button>
         </AlertDescription>

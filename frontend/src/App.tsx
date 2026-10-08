@@ -18,7 +18,6 @@ import { addToHistory, clearSavedHistory, createHistoryItem, loadHistory, saveHi
 import { formatResetTime } from "@/lib/format";
 import type { HistoryItem, SummaryResponse, Usage } from "@/types";
 
-// the markdown renderer is the biggest dependency and only needed once there's a result
 const SummaryCard = lazy(() => import("@/components/summary-card").then((m) => ({ default: m.SummaryCard })));
 
 type View =
@@ -31,7 +30,6 @@ export default function App() {
   const [input, setInput] = useState("");
   const [view, setView] = useState<View>({ status: "idle" });
   const [consent, setConsent] = useState<Consent | null>(loadConsent);
-  // only read saved history if the visitor allowed saving it
   const [history, setHistory] = useState<HistoryItem[]>(() => (loadConsent() === "granted" ? loadHistory() : []));
   const [health, setHealth] = useState<HealthState>({ status: "checking" });
   const [model, setModel] = useState(loadModelChoice);
@@ -49,7 +47,6 @@ export default function App() {
     saveModelChoice(next);
   }
 
-  // a saved model the server doesn't offer anymore goes back to auto
   useEffect(() => {
     if (health.status !== "ok" || model === AUTO) return;
     if (!modelOptions.some((m) => m.model === model)) changeModel(AUTO);
@@ -71,7 +68,6 @@ export default function App() {
     checkHealth();
   }, [checkHealth]);
 
-  // check again when the connection comes back
   useEffect(() => {
     if (online && health.status === "down") checkHealth();
   }, [online]);
@@ -98,7 +94,6 @@ export default function App() {
     setConsent(null);
   }
 
-  // keyboard shortcuts: "/" or ctrl+k focuses the input, esc cancels
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
@@ -115,7 +110,6 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // cancel any request still running when the page closes
   useEffect(() => () => abortRef.current?.abort(), []);
 
   const scrollToResult = () => {
@@ -139,7 +133,6 @@ export default function App() {
 
     try {
       const result = await summarizeUrl(url, controller.signal, model === AUTO ? undefined : model);
-      // functional update, the history may have changed while we were waiting
       const item = createHistoryItem(result);
       setHistory((items) => addToHistory(items, item));
       if (result.usage !== undefined) setUsage(result.usage);
@@ -160,7 +153,6 @@ export default function App() {
       }
       setView({ status: "error", url, error: describeError(err), key: Date.now() });
       if (err instanceof ApiError && err.code === "daily_limit" && usage) setUsage({ ...usage, used: usage.limit, remaining: 0 });
-      // couldn't even reach the server, show the banner too
       if (err instanceof ApiError && err.kind === "network") setHealth({ status: "down" });
     } finally {
       if (abortRef.current === controller) abortRef.current = null;
@@ -179,7 +171,6 @@ export default function App() {
   }
 
   function editUrl() {
-    // keep what the user typed, only fill it in if the box was emptied meanwhile
     if (view.status === "error" && !input.trim()) setInput(view.url);
     setView({ status: "idle" });
     setTimeout(() => {
@@ -247,7 +238,6 @@ export default function App() {
               usage={usage}
             />
 
-            {/* screen readers hear when the result is ready */}
             <p className="sr-only" aria-live="polite">
               {view.status === "success" && !view.fromHistory && `Summary ready: ${view.result.title}`}
               {view.status === "error" && `Error: ${view.error.title}. ${view.error.message}`}

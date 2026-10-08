@@ -16,7 +16,6 @@ interface Props {
   onChange: (value: string) => void;
   onSubmit: (url: string) => void;
   loading: boolean;
-  /** reason the button can't be used right now (offline, cooldown...) */
   blockedReason?: string;
   inputRef: RefObject<HTMLInputElement | null>;
   showExamples: boolean;
@@ -43,7 +42,6 @@ export function UrlForm({
   maxUrlLength,
   usage,
 }: Props) {
-  // only nag about the url after the user tried to submit it
   const [touched, setTouched] = useState(false);
   const check = checkUrl(value, maxUrlLength);
   const showError = touched && !check.ok && value.trim() !== "";
@@ -68,7 +66,6 @@ export function UrlForm({
         setTouched(true);
       }
     } catch (err) {
-      // permission denied or not supported - user can still paste with ctrl+v
       console.warn("clipboard read failed", err);
     }
     inputRef.current?.focus();
@@ -106,6 +103,7 @@ export function UrlForm({
                   <Button
                     type="button"
                     variant="ghost"
+                    hover="danger"
                     size="icon-sm"
                     onClick={() => {
                       onChange("");
@@ -123,7 +121,7 @@ export function UrlForm({
             {canPaste && !loading && (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button type="button" variant="ghost" size="icon-sm" onClick={pasteFromClipboard} aria-label="Paste from clipboard">
+                  <Button type="button" variant="ghost" hover="info" size="icon-sm" onClick={pasteFromClipboard} aria-label="Paste from clipboard">
                     <ClipboardPaste />
                   </Button>
                 </TooltipTrigger>
@@ -132,7 +130,7 @@ export function UrlForm({
             )}
           </div>
         </div>
-        <Button type="submit" size="lg" className="h-11 sm:w-36" disabled={loading || !!blockedReason || !value.trim()}>
+        <Button type="submit" size="lg" hover="success" className="h-11 sm:w-36" disabled={loading || !!blockedReason || !value.trim()}>
           {loading ? <Spinner aria-hidden="true" role="presentation" /> : <Sparkles />}
           {loading ? "Summarizing…" : "Summarize"}
         </Button>
@@ -172,6 +170,7 @@ export function UrlForm({
               key={ex.url}
               type="button"
               variant="outline"
+              hover="info"
               size="sm"
               className="h-7 rounded-full px-3 text-xs font-normal"
               onClick={() => {

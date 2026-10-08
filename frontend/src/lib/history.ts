@@ -3,9 +3,6 @@ import type { HistoryItem, SummaryResponse } from "@/types";
 
 const KEY = "summary-history";
 
-// localStorage can throw (private mode, storage full, blocked cookies) so every
-// call is wrapped and history just quietly stops working in that case
-
 export function loadHistory(): HistoryItem[] {
   try {
     const raw = localStorage.getItem(KEY);
@@ -19,9 +16,7 @@ export function loadHistory(): HistoryItem[] {
 export function clearSavedHistory() {
   try {
     localStorage.removeItem(KEY);
-  } catch {
-    // nothing to do
-  }
+  } catch {}
 }
 
 export function saveHistory(items: HistoryItem[]) {
@@ -41,7 +36,6 @@ export function createHistoryItem(result: SummaryResponse): HistoryItem {
 }
 
 export function addToHistory(items: HistoryItem[], item: HistoryItem): HistoryItem[] {
-  // newest first, and only keep the latest summary for the same page
   return [item, ...items.filter((i) => i.url !== item.url)].slice(0, config.historyLimit);
 }
 

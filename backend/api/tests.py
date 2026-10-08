@@ -32,7 +32,6 @@ PUBLIC_IP = "93.184.216.34"
 
 
 def fake_dns(mapping):
-    """Pretend DNS: hostname -> ip."""
     def getaddrinfo(host, *args, **kwargs):
         if host not in mapping:
             raise socket.gaierror("not found")
@@ -44,7 +43,6 @@ def fake_dns(mapping):
 
 def fake_site(handler, proxy=False):
     transport = patch.object(scraper, "TRANSPORT", httpx.MockTransport(handler))
-    # don't depend on the proxy settings of the machine running the tests
     no_proxy = patch.object(scraper, "uses_proxy", return_value=proxy)
     return _both(transport, no_proxy)
 
@@ -207,7 +205,6 @@ def groq_ok(text="**TL;DR:** from groq"):
 @patch.dict("os.environ", {"GEMINI_API_KEY": "g-key", "GROQ_API_KEY": "q-key"})
 class AIFallbackTests(SimpleTestCase):
     def run_with(self, responses):
-        """responses: list of httpx.Response in the order the models get called"""
         calls = []
 
         def fake_post(url, **kwargs):
@@ -273,7 +270,7 @@ class AIFallbackTests(SimpleTestCase):
         self.assertEqual(result["failed_attempts"][0]["error"], "timed out")
 
     def test_stops_trying_when_out_of_time(self):
-        clock = iter([0, 0, 80, 80, 80, 80])  # second model starts after the time limit
+        clock = iter([0, 0, 80, 80, 80, 80])
 
         with patch("api.services.ai.time.monotonic", side_effect=lambda: next(clock)), \
                 patch("api.services.ai.httpx.post", return_value=httpx.Response(500)) as mock_post:
@@ -380,7 +377,6 @@ class SummarizeApiTests(SimpleTestCase):
         self.assertEqual(data["provider"], "Google Gemini")
         self.assertEqual(data["model"], "gem-a")
         self.assertEqual(data["word_count"], 40)
-        # "example.com" should get https:// added
         mock_scrape.assert_called_once_with("https://example.com")
         self.assertEqual(res["Cache-Control"], "no-store")
 

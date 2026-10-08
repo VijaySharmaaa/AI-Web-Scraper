@@ -1,9 +1,5 @@
 import type { SummaryResponse } from "@/types";
 
-// ---- tiny markdown reader -------------------------------------------------
-// The summaries only use **bold**, bullet lists and short paragraphs, so
-// a full markdown parser would be overkill here.
-
 export interface Segment {
   text: string;
   bold: boolean;
@@ -16,8 +12,8 @@ export interface Block {
 
 function cleanInline(text: string) {
   return text
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1") // [text](url) -> text
-    .replace(/(^|\W)[_*]([^_*]+)[_*](?=\W|$)/g, "$1$2") // _italic_ -> italic
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/(^|\W)[_*]([^_*]+)[_*](?=\W|$)/g, "$1$2")
     .replace(/`([^`]+)`/g, "$1");
 }
 
@@ -45,10 +41,6 @@ export function parseSummary(markdown: string): Block[] {
   return blocks;
 }
 
-// ---- characters ------------------------------------------------------------
-// jsPDF's built-in fonts only cover Latin-1. Swap the common "smart"
-// punctuation for plain versions and check whether anything else is left.
-
 const REPLACEMENTS: [RegExp, string][] = [
   [/[‘’‚′]/g, "'"],
   [/[“”„″]/g, '"'],
@@ -63,7 +55,6 @@ export function plain(text: string) {
   return REPLACEMENTS.reduce((t, [re, to]) => t.replace(re, to), text);
 }
 
-/** true when the text can be drawn with the built-in PDF fonts */
 export function fitsBuiltInFont(text: string) {
   return /^[\u0000-ÿ]*$/.test(plain(text));
 }
@@ -77,15 +68,12 @@ export function pdfFileName(title: string) {
   return `${slug || "summary"}-summary.pdf`;
 }
 
-// ---- pdf -------------------------------------------------------------------
-
 export async function downloadSummaryPdf(result: SummaryResponse, date = new Date()) {
   const doc = await buildSummaryPdf(result, date);
   doc.save(pdfFileName(result.title));
 }
 
 export async function buildSummaryPdf(result: SummaryResponse, date = new Date()) {
-  // loaded on demand, most people never download a pdf
   const { jsPDF } = await import("jspdf");
   const doc = new jsPDF({ unit: "pt", format: "a4" });
 
@@ -93,7 +81,8 @@ export async function buildSummaryPdf(result: SummaryResponse, date = new Date()
   const pageHeight = doc.internal.pageSize.getHeight();
   const margin = 56;
   const maxWidth = pageWidth - margin * 2;
-  const bottom = pageHeight - margin - 20; // leave room for the footer
+  const footerSpace = 20;
+  const bottom = pageHeight - margin - footerSpace;
   let y = margin;
 
   const gray = () => doc.setTextColor(110, 110, 110);
@@ -116,7 +105,6 @@ export async function buildSummaryPdf(result: SummaryResponse, date = new Date()
     }
   }
 
-  /** draws bold and normal pieces on the same lines, wrapping word by word */
   function richText(segments: Segment[], x: number, width: number, size = 11) {
     const lineHeight = size * 1.55;
     let cursor = x;
@@ -125,7 +113,6 @@ export async function buildSummaryPdf(result: SummaryResponse, date = new Date()
 
     for (const seg of segments) {
       doc.setFont("helvetica", seg.bold ? "bold" : "normal");
-      // keep the spaces as their own tokens so spacing survives font changes
       for (const word of plain(seg.text).split(/(\s+)/)) {
         if (!word) continue;
         const isSpace = /^\s+$/.test(word);
@@ -146,14 +133,12 @@ export async function buildSummaryPdf(result: SummaryResponse, date = new Date()
     y += lineHeight;
   }
 
-  // header
   doc.setFont("helvetica", "bold");
   doc.setFontSize(9);
   gray();
   doc.text("AI WEB SUMMARIZER", margin, y);
   y += 18;
 
-  // title + link
   black();
   wrapped(result.title, 18, "bold", 24);
   y += 2;
@@ -166,7 +151,6 @@ export async function buildSummaryPdf(result: SummaryResponse, date = new Date()
     y += 13;
   }
 
-  // meta line
   y += 4;
   gray();
   const meta = [
@@ -176,13 +160,11 @@ export async function buildSummaryPdf(result: SummaryResponse, date = new Date()
   ].join("  ·  ");
   wrapped(meta, 9, "normal", 13);
 
-  // divider
   y += 8;
   doc.setDrawColor(225, 225, 225);
   doc.line(margin, y, pageWidth - margin, y);
   y += 16;
 
-  // summary
   black();
   for (const block of parseSummary(result.summary)) {
     if (block.type === "bullet") {
@@ -205,7 +187,6 @@ export async function buildSummaryPdf(result: SummaryResponse, date = new Date()
     wrapped("Note: the page was long, so only the first part was used for this summary.", 9, "normal", 13);
   }
 
-  // footer on every page
   const pages = doc.getNumberOfPages();
   for (let i = 1; i <= pages; i++) {
     doc.setPage(i);
@@ -219,9 +200,6 @@ export async function buildSummaryPdf(result: SummaryResponse, date = new Date()
   return doc;
 }
 
-// ---- print fallback for other alphabets -----------------------------------
-
-/** Opens the print dialog showing only the summary card ("Save as PDF" works there). */
 export function printSummary() {
   const root = document.documentElement;
   root.classList.add("print-summary");

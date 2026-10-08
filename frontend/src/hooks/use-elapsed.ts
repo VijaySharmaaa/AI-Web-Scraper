@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 
-/** Seconds since `running` became true. */
 export function useElapsed(running: boolean) {
   const [elapsed, setElapsed] = useState(0);
 
