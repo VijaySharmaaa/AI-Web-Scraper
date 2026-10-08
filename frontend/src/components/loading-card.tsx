@@ -1,23 +1,54 @@
-import { Check, Globe, FileText, Sparkles } from "lucide-react";
+import { Check, FileText, Globe, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { config } from "@/config";
-import { Spinner } from "@/components/ui/spinner";
 import { useElapsed } from "@/hooks/use-elapsed";
 import { hostnameOf } from "@/lib/url";
 import { cn } from "@/lib/utils";
 
-const STEPS = [
-  { label: "Fetching the page", icon: Globe, until: config.loadingSteps.fetchSeconds },
-  { label: "Extracting the main text", icon: FileText, until: config.loadingSteps.extractSeconds },
-  { label: "Writing the summary with AI", icon: Sparkles, until: Infinity },
-];
+export interface LoadingProgress {
+  step: "starting" | "fetching" | "reading" | "writing";
+  modelLabel?: string;
+  switches: string[];
+}
 
-export function LoadingCard({ url, onCancel }: { url: string; onCancel: () => void }) {
+const ORDER: LoadingProgress["step"][] = ["fetching", "reading", "writing"];
+
+function StepIcon({ state, icon: Icon }: { state: "done" | "active" | "waiting"; icon: typeof Globe }) {
+  if (state === "active") {
+    return (
+      <span
+        aria-hidden="true"
+        className="size-7 shrink-0 animate-spin rounded-full border-2 border-primary/20 border-t-primary will-change-transform"
+      />
+    );
+  }
+  return (
+    <span
+      className={cn(
+        "flex size-7 shrink-0 items-center justify-center rounded-full border",
+        state === "done" ? "border-primary bg-primary text-primary-foreground" : "text-muted-foreground"
+      )}
+    >
+      {state === "done" ? <Check className="size-3.5" /> : <Icon className="size-3.5" />}
+    </span>
+  );
+}
+
+export function LoadingCard({ url, progress, onCancel }: { url: string; progress: LoadingProgress; onCancel: () => void }) {
   const elapsed = useElapsed(true);
-  const current = STEPS.findIndex((s) => elapsed < s.until);
+  const current = Math.max(0, ORDER.indexOf(progress.step === "starting" ? "fetching" : progress.step));
+
+  const steps = [
+    { icon: Globe, label: "Fetching the page" },
+    { icon: FileText, label: "Reading the main text" },
+    {
+      icon: Sparkles,
+      label: progress.modelLabel ? `Writing the summary with ${progress.modelLabel}` : "Writing the summary",
+    },
+  ];
 
   return (
     <Card className="gap-5" role="status" aria-live="polite" aria-busy="true">
@@ -33,25 +64,22 @@ export function LoadingCard({ url, onCancel }: { url: string; onCancel: () => vo
         </div>
 
         <ol className="space-y-3">
-          {STEPS.map((step, i) => {
-            const done = i < current;
-            const active = i === current;
-            const Icon = step.icon;
+          {steps.map((step, i) => {
+            const state = i < current ? "done" : i === current ? "active" : "waiting";
             return (
-              <li key={step.label} className="flex items-center gap-3 text-sm">
-                <span
-                  className={cn(
-                    "flex size-7 shrink-0 items-center justify-center rounded-full border transition-colors",
-                    done && "border-primary bg-primary text-primary-foreground",
-                    active && "border-primary text-primary",
-                    !done && !active && "text-muted-foreground"
-                  )}
-                >
-                  {done ? <Check className="size-3.5" /> : active ? <Spinner className="size-3.5 border-[1.5px]" aria-hidden="true" role="presentation" /> : <Icon className="size-3.5" />}
-                </span>
-                <span className={cn(!done && !active && "text-muted-foreground", active && "font-medium")}>
-                  {step.label}
-                </span>
+              <li key={step.label} className="flex items-start gap-3 text-sm">
+                <StepIcon state={state} icon={step.icon} />
+                <div className="min-w-0 pt-1">
+                  <p className={cn(state === "waiting" && "text-muted-foreground", state === "active" && "font-medium")}>
+                    {step.label}
+                  </p>
+                  {i === 2 &&
+                    progress.switches.map((note) => (
+                      <p key={note} className="text-xs text-muted-foreground">
+                        {note}
+                      </p>
+                    ))}
+                </div>
               </li>
             );
           })}
@@ -65,7 +93,7 @@ export function LoadingCard({ url, onCancel }: { url: string; onCancel: () => vo
 
         <p className="text-xs text-muted-foreground tabular-nums">
           {elapsed.toFixed(0)}s
-          {elapsed > config.loadingSteps.slowSeconds && " · this page or the AI is a bit slow, hang on…"}
+          {elapsed > config.slowAfterSeconds && " · this is taking a bit longer than usual, hang on…"}
         </p>
       </CardContent>
     </Card>

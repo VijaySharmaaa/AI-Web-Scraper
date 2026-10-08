@@ -12,9 +12,5 @@ export const config = {
   requestTimeoutMs: number(env.VITE_REQUEST_TIMEOUT_MS, 130_000),
   historyLimit: number(env.VITE_HISTORY_LIMIT, 12),
   defaultMaxUrlLength: number(env.VITE_MAX_URL_LENGTH, 2000),
-  loadingSteps: {
-    fetchSeconds: number(env.VITE_LOADING_FETCH_SECONDS, 2.5),
-    extractSeconds: number(env.VITE_LOADING_EXTRACT_SECONDS, 4),
-    slowSeconds: number(env.VITE_LOADING_SLOW_SECONDS, 20),
-  },
+  slowAfterSeconds: number(env.VITE_SLOW_AFTER_SECONDS, 20),
 };

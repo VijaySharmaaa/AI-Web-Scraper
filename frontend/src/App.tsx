@@ -5,7 +5,7 @@ import { ConsentBanner } from "@/components/consent-banner";
 import { ErrorCard } from "@/components/error-card";
 import { HistoryList } from "@/components/history-list";
 import { HowItWorks } from "@/components/how-it-works";
-import { LoadingCard } from "@/components/loading-card";
+import { LoadingCard, type LoadingProgress } from "@/components/loading-card";
 import { SiteHeader } from "@/components/site-header";
 import { StatusBanner, type HealthState } from "@/components/status-banner";
 import { UrlForm } from "@/components/url-form";
@@ -16,13 +16,13 @@ import { loadConsent, saveConsent, type Consent } from "@/lib/consent";
 import { AUTO, loadModelChoice, saveModelChoice } from "@/lib/model-choice";
 import { addToHistory, clearSavedHistory, createHistoryItem, loadHistory, saveHistory } from "@/lib/history";
 import { formatResetTime } from "@/lib/format";
-import type { HistoryItem, SummaryResponse, Usage } from "@/types";
+import type { HistoryItem, Progress, SummaryResponse, Usage } from "@/types";
 
 const SummaryCard = lazy(() => import("@/components/summary-card").then((m) => ({ default: m.SummaryCard })));
 
 type View =
   | { status: "idle" }
-  | { status: "loading"; url: string }
+  | { status: "loading"; url: string; progress: LoadingProgress }
   | { status: "success"; result: SummaryResponse; historyId?: string; fromHistory: boolean }
   | { status: "error"; url: string; error: ErrorInfo; key: number };
 
@@ -143,22 +143,39 @@ export default function App() {
     abortRef.current = controller;
     requestIdRef.current = requestId;
 
-    setView({ status: "loading", url });
+    setView({ status: "loading", url, progress: { step: "starting", switches: [] } });
+
+    const onProgress = (event: Progress) => {
+      setView((current) => {
+        if (current.status !== "loading" || abortRef.current !== controller) return current;
+        const progress = { ...current.progress, switches: [...current.progress.switches] };
+        if (event.type === "step") progress.step = event.step;
+        if (event.type === "model") {
+          progress.step = "writing";
+          progress.modelLabel = event.label;
+        }
+        if (event.type === "model_switch") {
+          progress.step = "writing";
+          progress.modelLabel = event.label;
+          progress.switches.push(`${event.from_label} was ${event.reason}, now using ${event.label}`);
+        }
+        return { ...current, progress };
+      });
+    };
     scrollToResult();
 
     try {
-      const result = await summarizeUrl(url, controller.signal, model === AUTO ? undefined : model, requestId);
+      const result = await summarizeUrl(url, {
+        signal: controller.signal,
+        model: model === AUTO ? undefined : model,
+        requestId,
+        onProgress,
+      });
       const item = createHistoryItem(result);
       setHistory((items) => addToHistory(items, item));
       if (result.usage !== undefined) setUsage(result.usage);
       setView({ status: "success", result, historyId: item.id, fromHistory: false });
       if (health.status === "down") checkHealth();
-      if (result.failed_attempts.length > 0) {
-        const first = result.requested_model ?? "The first choice AI model";
-        toast.info(`Answered by ${result.provider} (${result.model})`, {
-          description: `${first} was unavailable, so a fallback model was used.`,
-        });
-      }
       scrollToResult();
     } catch (err) {
       if (err instanceof ApiError && err.kind === "aborted") {
@@ -218,7 +235,7 @@ export default function App() {
   let blockedReason: string | undefined;
   if (!online) blockedReason = "You're offline. Reconnect to summarize pages.";
   else if (health.status === "ok" && !health.data.ai_ready) blockedReason = "Summaries are unavailable until an AI API key is added on the server.";
-  else if (usage && usage.remaining === 0) blockedReason = `You've used today's ${usage.limit} summaries. More ${formatResetTime(usage.resets_at)}.`;
+  else if (usage && usage.remaining === 0) blockedReason = `You've used all ${usage.limit} summaries. More ${formatResetTime(usage.resets_at)}.`;
 
   return (
     <div className="flex min-h-dvh flex-col">
@@ -261,7 +278,7 @@ export default function App() {
             </p>
 
             <div ref={resultRef} className="scroll-mt-20 empty:hidden">
-              {view.status === "loading" && <LoadingCard url={view.url} onCancel={cancel} />}
+              {view.status === "loading" && <LoadingCard url={view.url} progress={view.progress} onCancel={cancel} />}
               {view.status === "error" && (
                 <ErrorCard error={view.error} errorKey={view.key} onRetry={() => summarize(view.url)} onEdit={editUrl} />
               )}

@@ -12,10 +12,9 @@ const HEALTH = { status: "ok", ai_ready: true, providers: ["Google Gemini", "Gro
 const RESULT = {
   title: "Web scraping - Wikipedia",
   url: "https://en.wikipedia.org/wiki/Web_scraping",
-  summary: "**TL;DR:** Scraping pulls data from sites.\n\n**Key points:**\n- one\n- two",
+  summary: "Scraping pulls data from sites.\n\n**Key points:**\n- one\n- two",
   provider: "Google Gemini",
   model: "gemini-flash-latest",
-  failed_attempts: [],
   char_count: 24000,
   word_count: 4000,
   truncated: true,
@@ -171,24 +170,82 @@ describe("App", () => {
     expect(await screen.findByText("No AI provider configured")).toBeInTheDocument();
   });
 
-  it("tells the user when a fallback model answered", async () => {
-    mockFetch(() =>
-      json({
-        ...RESULT,
-        provider: "Groq",
-        model: "llama-3.3-70b-versatile",
-        failed_attempts: [{ provider: "Google Gemini", model: "gemini-flash-latest", error: "rate limited / quota used up" }],
-      })
-    );
+  it("shows which model is writing and when Auto switches models", async () => {
+    let finish!: () => void;
+    const encoder = new TextEncoder();
+    const lines = [
+      { type: "step", step: "fetching" },
+      { type: "step", step: "reading", title: RESULT.title },
+      { type: "model", provider: "Google Gemini", model: "gem-a", label: "Gemini 3.8 Flash" },
+      { type: "model_switch", from_label: "Gemini 3.8 Flash", reason: "busy", provider: "Google Gemini", model: "gem-b", label: "Gemini 3.7 Flash" },
+    ];
+    mockFetch(() => {
+      const body = new ReadableStream({
+        start(controller) {
+          for (const line of lines) controller.enqueue(encoder.encode(JSON.stringify(line) + "\n"));
+          finish = () => {
+            controller.enqueue(encoder.encode(JSON.stringify({ type: "result", result: { ...RESULT, model_label: "Gemini 3.7 Flash" } }) + "\n"));
+            controller.close();
+          };
+        },
+      });
+      return Promise.resolve(new Response(body, { status: 200, headers: { "Content-Type": "application/x-ndjson" } }));
+    });
     const user = userEvent.setup();
     renderApp();
 
     await user.type(screen.getByLabelText("Web page URL"), "https://example.com");
     await user.click(screen.getByRole("button", { name: /summarize/i }));
 
-    expect(await screen.findByText("Groq · llama-3.3-70b-versatile")).toBeInTheDocument();
-    expect(screen.getByText("fallback")).toBeInTheDocument();
-    expect(await screen.findByText(/Answered by Groq/)).toBeInTheDocument();
+    expect(await screen.findByText("Writing the summary with Gemini 3.7 Flash")).toBeInTheDocument();
+    expect(screen.getByText("Gemini 3.8 Flash was busy, now using Gemini 3.7 Flash")).toBeInTheDocument();
+
+    finish();
+    expect(await screen.findByRole("heading", { name: RESULT.title })).toBeInTheDocument();
+    expect(screen.getByText("Google Gemini · Gemini 3.7 Flash")).toBeInTheDocument();
+    expect(screen.queryByText(/fallback/i)).not.toBeInTheDocument();
+  });
+
+  it("explains when the chosen model is busy", async () => {
+    const encoder = new TextEncoder();
+    mockFetch(() => {
+      const error = {
+        type: "error",
+        status: 429,
+        code: "model_busy",
+        error: "Gemini 3.8 Flash is busy right now. Try again in a minute, pick another model, or switch to Auto.",
+      };
+      const body = new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(JSON.stringify({ type: "step", step: "fetching" }) + "\n"));
+          controller.enqueue(encoder.encode(JSON.stringify(error) + "\n"));
+          controller.close();
+        },
+      });
+      return Promise.resolve(new Response(body, { status: 200, headers: { "Content-Type": "application/x-ndjson" } }));
+    });
+    const user = userEvent.setup();
+    renderApp();
+
+    await user.type(screen.getByLabelText("Web page URL"), "https://example.com");
+    await user.click(screen.getByRole("button", { name: /summarize/i }));
+
+    expect(await screen.findByText("That model is busy")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("pick another model, or switch to Auto");
+    expect(screen.getByRole("button", { name: /try again/i })).toBeInTheDocument();
+  });
+
+  it("never shows a label in front of the overview", async () => {
+    const label = ["TL", "DR"].join(";");
+    mockFetch(() => json({ ...RESULT, summary: `**${label}:** Plain overview here.\n\n- one` }));
+    const user = userEvent.setup();
+    renderApp();
+
+    await user.type(screen.getByLabelText("Web page URL"), "https://example.com");
+    await user.click(screen.getByRole("button", { name: /summarize/i }));
+
+    expect(await screen.findByText("Plain overview here.")).toBeInTheDocument();
+    expect(screen.queryByText(new RegExp(label))).not.toBeInTheDocument();
   });
 
   it("reopens and clears history", async () => {

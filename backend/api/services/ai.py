@@ -1,6 +1,7 @@
 import hashlib
 import logging
 import os
+import re
 import threading
 import time
 from functools import lru_cache
@@ -280,42 +281,88 @@ def unavailable_models():
     return items
 
 
+LEADING_LABEL = re.compile(r"^\s*\**\s*(tl\s*;?\s*dr|summary|overview)\s*\**\s*:\s*\**\s*", re.IGNORECASE)
+
+
+def tidy_summary(text):
+    return LEADING_LABEL.sub("", text, count=1).strip()
+
+
+def short_reason(reason):
+    if reason == RATE_LIMITED:
+        return "busy"
+    if reason == "timed out":
+        return "too slow"
+    return "unavailable"
+
+
 def all_failed(attempts):
     messages = {a["user_message"] for a in attempts if a["user_message"]}
     if len(messages) == 1 and all(a["user_message"] for a in attempts):
         return AIError(messages.pop(), 422, "ai_refused")
     reasons = {a["error"] for a in attempts}
     if reasons == {RATE_LIMITED}:
-        return AIError("All AI models are out of free quota right now. Wait a minute and try again.", 429, "ai_quota")
+        return AIError("All AI models are busy right now. Please try again in a minute.", 429, "ai_quota")
     if reasons == {BAD_KEY}:
-        return AIError("The server's AI API keys are invalid. If you run this app, check backend/.env", 503, "ai_bad_key")
-    return AIError(f"All {len(attempts)} AI models failed to answer. Please try again in a moment.", 502, "ai_failed")
+        logger.error("Every AI API key was rejected, check GEMINI_API_KEY / GROQ_API_KEY")
+        return AIError("The AI service isn't set up correctly on this server.", 503, "ai_bad_key")
+    return AIError("We couldn't reach any AI model right now. Please try again in a moment.", 502, "ai_failed")
 
 
-def summarize(page, preferred_model=None, check_cancelled=lambda: None):
+def chosen_model_failed(attempt):
+    label = model_label(attempt["model"])
+    if attempt["user_message"]:
+        return AIError(attempt["user_message"], 422, "ai_refused")
+    if attempt["error"] == RATE_LIMITED:
+        return AIError(
+            f"{label} is busy right now. Try again in a minute, pick another model, or switch to Auto.",
+            429,
+            "model_busy",
+        )
+    return AIError(
+        f"{label} couldn't write a summary right now. Try again later, pick another model, or switch to Auto.",
+        502,
+        "model_failed",
+    )
+
+
+def model_chain(preferred_model=None):
     chain = configured_models()
-    if preferred_model:
-        chosen = [c for c in chain if c[1] == preferred_model]
-        if not chosen:
-            raise AIError(f"The model '{preferred_model}' isn't available on this server.", 400, "invalid_model")
-        chain = chosen + [c for c in chain if c[1] != preferred_model]
     if not chain:
         logger.error("No AI API keys are set (GEMINI_API_KEY / GROQ_API_KEY)")
-        raise AIError(
-            "The server has no AI API key set up. If you run this app, add GEMINI_API_KEY or GROQ_API_KEY to backend/.env",
-            503,
-            "ai_not_configured",
-        )
+        raise AIError("Summaries aren't available yet: no AI service is set up on this server.", 503, "ai_not_configured")
+    if preferred_model:
+        chain = [c for c in chain if c[1] == preferred_model]
+        if not chain:
+            raise AIError(f"{model_label(preferred_model)} isn't available right now. Pick another model or use Auto.", 400, "invalid_model")
+    return chain
 
+
+def summarize_steps(page, preferred_model=None, check_cancelled=lambda: None):
+    chain = model_chain(preferred_model)
     attempts = []
     deadline = time.monotonic() + settings.AI_TOTAL_TIME_LIMIT
+
     for provider, model, func, api_key in chain:
         check_cancelled()
         time_left = deadline - time.monotonic()
         if time_left < settings.AI_MIN_TIME_FOR_ATTEMPT:
             logger.warning("Out of time, not trying %s / %s", provider, model)
-            attempts.append({"provider": provider, "model": model, "error": "skipped, out of time", "user_message": None})
-            continue
+            attempts.append({"provider": provider, "model": model, "error": "timed out", "user_message": None})
+            break
+
+        if attempts:
+            last = attempts[-1]
+            yield {
+                "type": "model_switch",
+                "from_label": model_label(last["model"]),
+                "reason": short_reason(last["error"]),
+                "provider": provider,
+                "model": model,
+                "label": model_label(model),
+            }
+        else:
+            yield {"type": "model", "provider": provider, "model": model, "label": model_label(model)}
 
         logger.info("Trying %s / %s", provider, model)
         try:
@@ -329,16 +376,23 @@ def summarize(page, preferred_model=None, check_cancelled=lambda: None):
             attempts.append({"provider": provider, "model": model, "error": "unexpected response", "user_message": None})
             continue
 
+        text = tidy_summary(text)
         if cut_off:
             text += "\n\n_(the summary was cut off)_"
         logger.info("Got summary from %s / %s after %d failed attempt(s)", provider, model, len(attempts))
-        failed = [{k: a[k] for k in ("provider", "model", "error")} for a in attempts]
-        return {
-            "summary": text,
-            "provider": provider,
-            "model": model,
-            "model_label": model_label(model),
-            "failed_attempts": failed,
+        yield {
+            "type": "done",
+            "result": {"summary": text, "provider": provider, "model": model, "model_label": model_label(model)},
         }
+        return
 
+    if preferred_model and attempts:
+        raise chosen_model_failed(attempts[-1])
     raise all_failed(attempts)
+
+
+def summarize(page, preferred_model=None, check_cancelled=lambda: None):
+    for step in summarize_steps(page, preferred_model, check_cancelled):
+        if step["type"] == "done":
+            return step["result"]
+    raise AIError("We couldn't reach any AI model right now. Please try again in a moment.", 502, "ai_failed")

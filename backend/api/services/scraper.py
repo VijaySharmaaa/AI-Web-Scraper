@@ -20,20 +20,20 @@ TRANSPORT = None
 
 def validate_url(url):
     if len(url) > settings.SCRAPER_MAX_URL_LENGTH:
-        raise ScrapeError("That URL is too long", code="invalid_url")
+        raise ScrapeError("That link is too long.", code="invalid_url")
 
     try:
         parts = urlsplit(url)
         port = parts.port
     except ValueError:
-        raise ScrapeError("That doesn't look like a valid URL", code="invalid_url") from None
+        raise ScrapeError("That doesn't look like a valid link.", code="invalid_url") from None
 
     if parts.scheme not in ("http", "https") or not parts.hostname:
-        raise ScrapeError("Only http:// and https:// links are supported", code="invalid_url")
+        raise ScrapeError("Only web links (http or https) can be summarized.", code="invalid_url")
     if parts.username or parts.password:
-        raise ScrapeError("URLs with a username or password are not allowed", code="invalid_url")
+        raise ScrapeError("Links with a username or password can't be used.", code="invalid_url")
     if port is not None and port not in settings.SCRAPER_ALLOWED_PORTS:
-        raise ScrapeError(f"Port {port} is not allowed, use a normal website address", code="invalid_url")
+        raise ScrapeError("That port isn't allowed. Use a normal website link.", code="invalid_url")
     return parts
 
 
@@ -41,7 +41,7 @@ def resolve_public_ip(hostname):
     try:
         infos = socket.getaddrinfo(hostname, None, proto=socket.IPPROTO_TCP)
     except (socket.gaierror, UnicodeError):
-        raise ScrapeError(f"Could not find the website '{hostname}'. Check the spelling.", 422, "dns_not_found") from None
+        raise ScrapeError(f"We couldn't find {hostname}. Check the spelling.", 422, "dns_not_found") from None
 
     ips = []
     for info in infos:
@@ -50,12 +50,17 @@ def resolve_public_ip(hostname):
             ip = ip.ipv4_mapped
         if not ip.is_global or ip.is_multicast:
             logger.warning("Blocked non-public address %s for host %s", ip, hostname)
-            raise ScrapeError("That address points to a private or local network, which isn't allowed", code="private_address")
+            raise ScrapeError("Links to private or local networks can't be summarized.", code="private_address")
         ips.append(ip)
 
     if not ips:
-        raise ScrapeError(f"Could not find the website '{hostname}'", 422, "dns_not_found")
+        raise ScrapeError(f"We couldn't find {hostname}. Check the spelling.", 422, "dns_not_found")
     return ips[0]
+
+
+def precheck_url(url):
+    parts = validate_url(url)
+    resolve_public_ip(parts.hostname)
 
 
 def uses_proxy(parts):
@@ -95,7 +100,7 @@ def read_limited(response, deadline, check_cancelled=no_check):
     for chunk in response.iter_bytes():
         check_cancelled()
         if time.monotonic() > deadline:
-            raise ScrapeError("The website is sending the page too slowly", 504, "site_timeout")
+            raise ScrapeError("The website is responding too slowly.", 504, "site_timeout")
         room = limit - total
         if len(chunk) >= room:
             chunks.append(chunk[:room])
@@ -112,16 +117,15 @@ def check_response(response):
     logger.debug("Got status=%s content-type=%s", status, content_type)
 
     if status in (401, 403):
-        raise ScrapeError("This website blocked our request (it doesn't allow scrapers or needs a login)", 422, "site_blocked")
+        raise ScrapeError("This website doesn't allow automated reading.", 422, "site_blocked")
     if status == 404:
-        raise ScrapeError("That page doesn't exist (404). Check the URL.", 422, "page_not_found")
+        raise ScrapeError("That page doesn't exist. Check the link.", 422, "page_not_found")
     if status == 429:
-        raise ScrapeError("The website is rate limiting us. Try again in a bit.", 422, "site_rate_limited")
+        raise ScrapeError("This website is limiting visits right now. Try again in a bit.", 422, "site_rate_limited")
     if status >= 400:
-        raise ScrapeError(f"The website returned an error (HTTP {status})", 502, "site_error")
+        raise ScrapeError("The website had a problem. Try again later.", 502, "site_error")
     if content_type and "html" not in content_type:
-        kind = content_type.split(";")[0]
-        raise ScrapeError(f"That link is not a web page (it's {kind}). Only HTML pages are supported.", 415, "not_html")
+        raise ScrapeError("That link isn't a web page, so it can't be summarized.", 415, "not_html")
 
 
 def http_clients():
@@ -151,7 +155,7 @@ def fetch_html(url, check_cancelled=no_check):
             for _ in range(settings.SCRAPER_MAX_REDIRECTS + 1):
                 check_cancelled()
                 if time.monotonic() > deadline:
-                    raise ScrapeError("The website took too long to respond", 504, "site_timeout")
+                    raise ScrapeError("The website took too long to respond.", 504, "site_timeout")
                 client, request = build_request(clients, url)
                 response = client.send(request, stream=True)
                 try:
@@ -164,12 +168,12 @@ def fetch_html(url, check_cancelled=no_check):
                 finally:
                     response.close()
     except httpx.TimeoutException:
-        raise ScrapeError("The website took too long to respond", 504, "site_timeout") from None
+        raise ScrapeError("The website took too long to respond.", 504, "site_timeout") from None
     except httpx.HTTPError as e:
         logger.debug("Request to %s failed: %r", url, e)
-        raise ScrapeError("Could not connect to the website. It may be down or blocking us.", 502, "site_unreachable") from None
+        raise ScrapeError("We couldn't connect to that website. It may be down.", 502, "site_unreachable") from None
 
-    raise ScrapeError("The page redirected too many times", 502, "too_many_redirects")
+    raise ScrapeError("That page keeps redirecting, so we couldn't open it.", 502, "too_many_redirects")
 
 
 def clean(text):
@@ -214,7 +218,7 @@ def scrape_page(url, check_cancelled=no_check):
 
     if len(text) < settings.SCRAPER_MIN_TEXT_CHARS:
         raise ScrapeError(
-            "Couldn't find readable text on that page. It probably loads its content with JavaScript.",
+            "We couldn't find readable text on that page.",
             422,
             "no_text",
         )

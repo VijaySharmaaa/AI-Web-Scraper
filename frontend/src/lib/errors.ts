@@ -24,14 +24,13 @@ const BY_CODE: Record<string, Preset> = {
     tone: "warning",
     retryable: false,
     editUrl: true,
-    hint: "For security, local and private network addresses (like localhost or 192.168.x.x) can't be summarized.",
+    hint: "For safety, addresses like localhost or 192.168.x.x are blocked.",
   },
   dns_not_found: {
     title: "Website not found",
     tone: "warning",
     retryable: false,
     editUrl: true,
-    hint: "Double check the spelling of the domain, e.g. wikipedia.org not wikipedia.ogr.",
   },
   page_not_found: { title: "Page not found", tone: "warning", retryable: false, editUrl: true },
   site_blocked: {
@@ -39,7 +38,7 @@ const BY_CODE: Record<string, Preset> = {
     tone: "warning",
     retryable: false,
     editUrl: true,
-    hint: "Some sites block automated readers or need a login. Try another article on a different site.",
+    hint: "Try an article from another site.",
   },
   site_rate_limited: { title: "The website is limiting requests", tone: "warning", retryable: true, editUrl: false },
   site_error: { title: "The website has a problem", tone: "warning", retryable: true, editUrl: true },
@@ -49,7 +48,6 @@ const BY_CODE: Record<string, Preset> = {
     tone: "warning",
     retryable: true,
     editUrl: true,
-    hint: "The site may be down, or it may refuse connections from servers.",
   },
   too_many_redirects: { title: "Too many redirects", tone: "warning", retryable: false, editUrl: true },
   not_html: {
@@ -57,28 +55,39 @@ const BY_CODE: Record<string, Preset> = {
     tone: "warning",
     retryable: false,
     editUrl: true,
-    hint: "Links to PDFs, images, videos or downloads can't be summarized. Try the page that links to it.",
+    hint: "PDFs, images and downloads can't be summarized.",
   },
   no_text: {
     title: "No readable text found",
     tone: "warning",
     retryable: false,
     editUrl: true,
-    hint: "This page builds its content with JavaScript, which this app doesn't run. Articles, blogs, docs and Wikipedia work best.",
+    hint: "It may load its text with JavaScript. Articles and docs work best.",
+  },
+  model_busy: {
+    title: "That model is busy",
+    tone: "warning",
+    retryable: true,
+    editUrl: false,
+  },
+  model_failed: {
+    title: "That model didn't answer",
+    tone: "warning",
+    retryable: true,
+    editUrl: false,
   },
   invalid_model: {
-    title: "That AI model isn't available",
+    title: "That model isn't available",
     tone: "warning",
     retryable: false,
     editUrl: false,
-    hint: "The server's model list changed. Pick another model or use Auto.",
   },
   ai_quota: {
     title: "The AI is busy",
     tone: "warning",
     retryable: true,
     editUrl: false,
-    hint: "Free AI plans have a per-minute limit. It usually resets within a minute.",
+    hint: "Free AI limits reset every minute.",
   },
   ai_refused: { title: "The AI declined this page", tone: "warning", retryable: false, editUrl: true },
   ai_failed: { title: "The AI didn't answer", tone: "warning", retryable: true, editUrl: false },
@@ -92,7 +101,7 @@ export function describeError(err: unknown): ErrorInfo {
     console.error("unexpected error", err);
     return {
       title: "Something went wrong",
-      message: "An unexpected error happened in the app. Please try again.",
+      message: "Something unexpected happened. Please try again.",
       tone: "destructive",
       retryable: true,
       editUrl: false,
@@ -103,7 +112,7 @@ export function describeError(err: unknown): ErrorInfo {
 
   if (err.kind === "network") {
     return { ...base, title: "Can't reach the server", tone: "destructive", retryable: true, editUrl: false,
-      hint: "If you're running this locally, make sure the Django backend is running on port 8000." };
+      hint: "If you run the app locally, make sure the backend is running." };
   }
   if (err.kind === "timeout") {
     return { ...base, title: "This is taking too long", tone: "warning", retryable: true, editUrl: false };
@@ -118,7 +127,7 @@ export function describeError(err: unknown): ErrorInfo {
       tone: "warning",
       retryable: false,
       editUrl: false,
-      hint: err.resetsAt ? `You can summarize more pages ${formatResetTime(err.resetsAt)}. Your history still works.` : undefined,
+      hint: err.resetsAt ? `More summaries ${formatResetTime(err.resetsAt)}. Your history still works.` : undefined,
     };
   }
   const known = BY_CODE[code];

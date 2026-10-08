@@ -1,3 +1,5 @@
+import ipaddress
+import json
 import socket
 from unittest.mock import ANY, patch
 
@@ -31,8 +33,12 @@ ARTICLE_HTML = b"""
 PUBLIC_IP = "93.184.216.34"
 
 
-def fake_dns(mapping):
+def fake_dns(mapping_):
     def getaddrinfo(host, *args, **kwargs):
+        try:
+            mapping = {**mapping_, host: str(ipaddress.ip_address(host))}
+        except ValueError:
+            mapping = mapping_
         if host not in mapping:
             raise socket.gaierror("not found")
         ip = mapping[host]
@@ -156,7 +162,7 @@ class UrlSafetyTests(SimpleTestCase):
         with fake_dns({"example.com": PUBLIC_IP}), fake_site(handler):
             with self.assertRaises(ScrapeError) as ctx:
                 scrape_page("https://example.com/")
-        self.assertIn("redirected too many times", str(ctx.exception.detail))
+        self.assertIn("keeps redirecting", str(ctx.exception.detail))
 
 
 class FetchErrorTests(SimpleTestCase):
@@ -171,7 +177,7 @@ class FetchErrorTests(SimpleTestCase):
         self.assertEqual(ctx.exception.error_code, "not_html")
 
     def test_http_errors_have_friendly_messages(self):
-        for status, words in [(403, "blocked"), (404, "doesn't exist"), (500, "HTTP 500")]:
+        for status, words in [(403, "doesn't allow"), (404, "doesn't exist"), (500, "had a problem")]:
             with self.subTest(status=status), self.assertRaises(ScrapeError) as ctx:
                 self.scrape_with(html_response(status=status))
             self.assertIn(words, str(ctx.exception.detail))
@@ -185,19 +191,19 @@ class FetchErrorTests(SimpleTestCase):
     def test_page_without_text(self):
         with self.assertRaises(ScrapeError) as ctx:
             self.scrape_with(html_response(b"<html><body><div id='root'></div></body></html>"))
-        self.assertIn("JavaScript", str(ctx.exception.detail))
+        self.assertIn("readable text", str(ctx.exception.detail))
 
     def test_unknown_host(self):
         with fake_dns({}), self.assertRaises(ScrapeError) as ctx:
             scrape_page("https://does-not-exist.test/")
-        self.assertIn("Could not find", str(ctx.exception.detail))
+        self.assertIn("couldn't find", str(ctx.exception.detail))
 
 
-def gemini_ok(text="**TL;DR:** it works"):
+def gemini_ok(text="It works."):
     return httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": text}]}, "finishReason": "STOP"}]})
 
 
-def groq_ok(text="**TL;DR:** from groq"):
+def groq_ok(text="From groq."):
     return httpx.Response(200, json={"choices": [{"message": {"content": text}, "finish_reason": "stop"}]})
 
 
@@ -215,24 +221,35 @@ class AIFallbackTests(SimpleTestCase):
         with patch("api.services.ai.send", side_effect=lambda method, url, **kw: fake_post(url, **kw)):
             return ai.summarize(FAKE_PAGE), calls
 
+    def steps_with(self, responses, preferred_model=None):
+        calls = []
+
+        def fake_post(url, **kwargs):
+            calls.append(kwargs.get("json", {}).get("model") or url.split("/models/")[1].split(":")[0])
+            return responses[len(calls) - 1]
+
+        with patch("api.services.ai.send", side_effect=lambda method, url, **kw: fake_post(url, **kw)):
+            return list(ai.summarize_steps(FAKE_PAGE, preferred_model=preferred_model)), calls
+
     def test_first_model_works(self):
         result, calls = self.run_with([gemini_ok()])
         self.assertEqual(result["provider"], "Google Gemini")
         self.assertEqual(result["model"], "gem-a")
-        self.assertEqual(result["failed_attempts"], [])
         self.assertEqual(calls, ["gem-a"])
 
     def test_falls_back_to_next_gemini_model(self):
-        result, calls = self.run_with([httpx.Response(429, json={}), gemini_ok()])
-        self.assertEqual(result["model"], "gem-b")
-        self.assertEqual(result["failed_attempts"][0]["model"], "gem-a")
-        self.assertIn("rate limited", result["failed_attempts"][0]["error"])
+        steps, calls = self.steps_with([httpx.Response(429, json={}), gemini_ok()])
+        self.assertEqual(calls, ["gem-a", "gem-b"])
+        self.assertEqual([s["type"] for s in steps], ["model", "model_switch", "done"])
+        self.assertEqual(steps[1]["from_label"], "Gem A")
+        self.assertEqual(steps[1]["label"], "Gem B")
+        self.assertEqual(steps[1]["reason"], "busy")
+        self.assertEqual(steps[-1]["result"]["model"], "gem-b")
 
     def test_falls_back_to_groq(self):
         result, calls = self.run_with([httpx.Response(503), httpx.Response(404), groq_ok()])
         self.assertEqual(result["provider"], "Groq")
         self.assertEqual(result["model"], "llama-a")
-        self.assertEqual(len(result["failed_attempts"]), 2)
         self.assertEqual(calls, ["gem-a", "gem-b", "llama-a"])
 
     def test_empty_response_moves_on(self):
@@ -255,7 +272,8 @@ class AIFallbackTests(SimpleTestCase):
     def test_all_fail(self):
         with self.assertRaises(AIError) as ctx:
             self.run_with([httpx.Response(500)] * 3)
-        self.assertIn("All 3 AI models failed", str(ctx.exception.detail))
+        self.assertEqual(ctx.exception.error_code, "ai_failed")
+        self.assertIn("try again", str(ctx.exception.detail))
 
     def test_timeout_moves_on(self):
         calls = []
@@ -267,8 +285,10 @@ class AIFallbackTests(SimpleTestCase):
             return gemini_ok()
 
         with patch("api.services.ai.send", side_effect=lambda method, url, **kw: fake_post(url, **kw)):
-            result = ai.summarize(FAKE_PAGE)
-        self.assertEqual(result["failed_attempts"][0]["error"], "timed out")
+            steps = list(ai.summarize_steps(FAKE_PAGE))
+        self.assertEqual(steps[1]["type"], "model_switch")
+        self.assertEqual(steps[1]["reason"], "too slow")
+        self.assertEqual(steps[-1]["type"], "done")
 
     def test_stops_trying_when_out_of_time(self):
         clock = iter([0, 0, 80, 80, 80, 80])
@@ -291,19 +311,28 @@ class AIFallbackTests(SimpleTestCase):
         self.assertEqual(calls, ["llama-a"])
         self.assertEqual(result["model"], "llama-a")
 
-    def test_preferred_model_still_falls_back(self):
-        responses = [httpx.Response(429), gemini_ok()]
-        calls = []
+    def test_chosen_model_does_not_fall_back(self):
+        with self.assertRaises(AIError) as ctx:
+            self.steps_with([httpx.Response(429), gemini_ok()], preferred_model="gem-b")
+        self.assertEqual(ctx.exception.error_code, "model_busy")
+        self.assertEqual(ctx.exception.status_code, 429)
+        message = str(ctx.exception.detail)
+        self.assertIn("busy", message)
+        self.assertIn("another model", message)
+        self.assertIn("Auto", message)
 
-        def fake_post(url, **kwargs):
-            calls.append(kwargs.get("json", {}).get("model") or url.split("/models/")[1].split(":")[0])
-            return responses[len(calls) - 1]
+    def test_chosen_model_error_message(self):
+        with self.assertRaises(AIError) as ctx:
+            self.steps_with([httpx.Response(500)], preferred_model="gem-b")
+        self.assertEqual(ctx.exception.error_code, "model_failed")
+        self.assertIn("Try again later", str(ctx.exception.detail))
 
-        with patch("api.services.ai.send", side_effect=lambda method, url, **kw: fake_post(url, **kw)):
-            result = ai.summarize(FAKE_PAGE, preferred_model="gem-b")
-        self.assertEqual(calls, ["gem-b", "gem-a"])
-        self.assertEqual(result["model"], "gem-a")
-        self.assertEqual(result["failed_attempts"][0]["model"], "gem-b")
+    def test_summary_label_is_removed(self):
+        label = ";".join(["TL", "DR"])
+        for raw in [f"**{label}:** Short overview.", f"{label}: Short overview.", "**Summary:** Short overview."]:
+            with self.subTest(raw=raw):
+                result, _ = self.run_with([gemini_ok(raw)])
+                self.assertEqual(result["summary"], "Short overview.")
 
     def test_unknown_preferred_model(self):
         with self.assertRaises(AIError) as ctx:
@@ -322,17 +351,60 @@ class AIFallbackTests(SimpleTestCase):
         self.assertEqual(ctx.exception.status_code, 503)
 
 
-AI_RESULT = {"summary": "**TL;DR:** test", "provider": "Google Gemini", "model": "gem-a", "failed_attempts": []}
+AI_RESULT = {"summary": "It works.", "provider": "Google Gemini", "model": "gem-a", "model_label": "Gem A"}
+
+class Reply:
+    def __init__(self, res):
+        self.res = res
+        self.events = []
+        if getattr(res, "streaming", False):
+            body = b"".join(res.streaming_content).decode()
+            self.events = [json.loads(line) for line in body.splitlines() if line.strip()]
+            last = self.events[-1] if self.events else {}
+            if last.get("type") == "result":
+                self.status_code, self.data = 200, last["result"]
+            else:
+                self.status_code = last.get("status", 500)
+                self.data = {"error": last.get("error"), "code": last.get("code")}
+        else:
+            self.status_code, self.data = res.status_code, res.json()
+
+    def json(self):
+        return self.data
+
+    def __getitem__(self, header):
+        return self.res[header]
+
+
+def ai_steps(result=None):
+    def steps(page, preferred_model=None, check_cancelled=None):
+        yield {"type": "model", "provider": "Google Gemini", "model": "gem-a", "label": "Gem A"}
+        yield {"type": "done", "result": result or AI_RESULT}
+    return steps
+
+
+def ai_raises(error):
+    def steps(page, preferred_model=None, check_cancelled=None):
+        raise error
+        yield
+    return steps
+
 
 
 @override_settings(GEMINI_CHECK_MODELS=False)
 class SummarizeApiTests(SimpleTestCase):
     def setUp(self):
         cache.clear()
+        dns = fake_dns({"example.com": PUBLIC_IP})
+        dns.start()
+        self.addCleanup(dns.stop)
+        key = patch.dict("os.environ", {"GEMINI_API_KEY": "test-key"})
+        key.start()
+        self.addCleanup(key.stop)
         self.client = APIClient()
 
     def post(self, data):
-        return self.client.post("/api/summarize/", data, format="json")
+        return Reply(self.client.post("/api/summarize/", data, format="json"))
 
     def test_missing_url(self):
         res = self.post({})
@@ -369,13 +441,13 @@ class SummarizeApiTests(SimpleTestCase):
         self.assertEqual(res.status_code, 404)
         self.assertEqual(res.json()["error"], "API endpoint not found")
 
-    @patch("api.views.summarize", return_value=AI_RESULT)
+    @patch("api.views.summarize_steps", side_effect=ai_steps())
     @patch("api.views.scrape_page", return_value=FAKE_PAGE)
     def test_success(self, mock_scrape, mock_ai):
         res = self.post({"url": "example.com"})
         self.assertEqual(res.status_code, 200)
         data = res.json()
-        self.assertEqual(data["summary"], "**TL;DR:** test")
+        self.assertEqual(data["summary"], "It works.")
         self.assertEqual(data["provider"], "Google Gemini")
         self.assertEqual(data["model"], "gem-a")
         self.assertEqual(data["word_count"], 40)
@@ -389,7 +461,7 @@ class SummarizeApiTests(SimpleTestCase):
         self.assertNotIn("boom", res.json()["error"])
 
     @patch.object(ScopedRateThrottle, "THROTTLE_RATES", {"summarize": "2/min", "anon": "100/min"})
-    @patch("api.views.summarize", return_value=AI_RESULT)
+    @patch("api.views.summarize_steps", side_effect=ai_steps())
     @patch("api.views.scrape_page", return_value=FAKE_PAGE)
     def test_rate_limit(self, *_):
         codes = [self.post({"url": "https://example.com"}).status_code for _ in range(2)]
@@ -401,7 +473,7 @@ class SummarizeApiTests(SimpleTestCase):
 
     @override_settings(GEMINI_MODELS=["gem-a", "gem-b"])
     @patch.dict("os.environ", {"GEMINI_API_KEY": "k", "GROQ_API_KEY": ""})
-    @patch("api.views.summarize", return_value=AI_RESULT)
+    @patch("api.views.summarize_steps", side_effect=ai_steps())
     @patch("api.views.scrape_page", return_value=FAKE_PAGE)
     def test_chosen_model_is_passed_on(self, mock_scrape, mock_ai):
         res = self.post({"url": "https://example.com", "model": "gem-b"})
@@ -422,7 +494,7 @@ class SummarizeApiTests(SimpleTestCase):
         res = self.post({"url": "https://example.com", "model": "gem a; rm -rf"})
         self.assertEqual(res.status_code, 400)
 
-    @patch("api.views.summarize", return_value=AI_RESULT)
+    @patch("api.views.summarize_steps", side_effect=ai_steps())
     @patch("api.views.scrape_page", return_value=FAKE_PAGE)
     def test_empty_model_means_auto(self, mock_scrape, mock_ai):
         res = self.post({"url": "https://example.com", "model": ""})
@@ -451,12 +523,18 @@ class SummarizeApiTests(SimpleTestCase):
 class DailyQuotaTests(SimpleTestCase):
     def setUp(self):
         cache.clear()
+        dns = fake_dns({"example.com": PUBLIC_IP})
+        dns.start()
+        self.addCleanup(dns.stop)
+        key = patch.dict("os.environ", {"GEMINI_API_KEY": "test-key"})
+        key.start()
+        self.addCleanup(key.stop)
         self.client = APIClient()
 
     def post(self):
-        return self.client.post("/api/summarize/", {"url": "https://example.com"}, format="json")
+        return Reply(self.client.post("/api/summarize/", {"url": "https://example.com"}, format="json"))
 
-    @patch("api.views.summarize", return_value=AI_RESULT)
+    @patch("api.views.summarize_steps", side_effect=ai_steps())
     @patch("api.views.scrape_page", return_value=FAKE_PAGE)
     def test_three_per_day(self, *_):
         results = [self.post() for _ in range(3)]
@@ -478,7 +556,7 @@ class DailyQuotaTests(SimpleTestCase):
         usage = self.client.get("/api/health/").json()["usage"]
         self.assertEqual(usage["used"], 0)
 
-    @patch("api.views.summarize", side_effect=AIError("all failed", 502, "ai_failed"))
+    @patch("api.views.summarize_steps", side_effect=ai_raises(AIError("all failed", 502, "ai_failed")))
     @patch("api.views.scrape_page", return_value=FAKE_PAGE)
     def test_failed_ai_doesnt_count(self, *_):
         self.post()
@@ -488,7 +566,7 @@ class DailyQuotaTests(SimpleTestCase):
         self.client.post("/api/summarize/", {"url": "nope"}, format="json")
         self.assertEqual(self.client.get("/api/health/").json()["usage"]["used"], 0)
 
-    @patch("api.views.summarize", return_value=AI_RESULT)
+    @patch("api.views.summarize_steps", side_effect=ai_steps())
     @patch("api.views.scrape_page", return_value=FAKE_PAGE)
     def test_each_ip_has_its_own_quota(self, *_):
         for _ in range(3):
@@ -497,7 +575,7 @@ class DailyQuotaTests(SimpleTestCase):
         res = other.post("/api/summarize/", {"url": "https://example.com"}, format="json")
         self.assertEqual(res.status_code, 200)
 
-    @patch("api.views.summarize", return_value=AI_RESULT)
+    @patch("api.views.summarize_steps", side_effect=ai_steps())
     @patch("api.views.scrape_page", return_value=FAKE_PAGE)
     def test_new_day_resets(self, *_):
         from datetime import datetime, timezone
@@ -602,10 +680,16 @@ class GeminiModelCheckTests(SimpleTestCase):
 class CancelTests(SimpleTestCase):
     def setUp(self):
         cache.clear()
+        dns = fake_dns({"example.com": PUBLIC_IP})
+        dns.start()
+        self.addCleanup(dns.stop)
+        key = patch.dict("os.environ", {"GEMINI_API_KEY": "test-key"})
+        key.start()
+        self.addCleanup(key.stop)
         self.client = APIClient()
 
     def summarize(self, request_id="req-12345678"):
-        return self.client.post("/api/summarize/", {"url": "https://example.com", "request_id": request_id}, format="json")
+        return Reply(self.client.post("/api/summarize/", {"url": "https://example.com", "request_id": request_id}, format="json"))
 
     def cancel(self, request_id="req-12345678", client=None):
         return (client or self.client).post("/api/summarize/cancel/", {"request_id": request_id}, format="json")
@@ -613,7 +697,7 @@ class CancelTests(SimpleTestCase):
     def used(self):
         return self.client.get("/api/health/").json()["usage"]["used"]
 
-    @patch("api.views.summarize", return_value=AI_RESULT)
+    @patch("api.views.summarize_steps", side_effect=ai_steps())
     @patch("api.views.scrape_page", return_value=FAKE_PAGE)
     def test_cancel_before_start_stops_everything(self, mock_scrape, mock_ai):
         self.assertEqual(self.cancel().status_code, 202)
@@ -628,13 +712,14 @@ class CancelTests(SimpleTestCase):
     def test_cancel_during_ai_skips_remaining_models(self, _):
         calls = []
 
-        def fake_summarize(page, preferred_model=None, check_cancelled=None):
+        def fake_steps(page, preferred_model=None, check_cancelled=None):
             calls.append("first model")
             self.cancel()
             check_cancelled()
             calls.append("second model")
+            yield {"type": "done", "result": AI_RESULT}
 
-        with patch("api.views.summarize", side_effect=fake_summarize):
+        with patch("api.views.summarize_steps", side_effect=fake_steps):
             res = self.summarize()
         self.assertEqual(res.status_code, 499)
         self.assertEqual(calls, ["first model"])
@@ -642,11 +727,11 @@ class CancelTests(SimpleTestCase):
 
     @patch("api.views.scrape_page", return_value=FAKE_PAGE)
     def test_cancel_after_ai_answered_still_refunds(self, _):
-        def fake_summarize(page, preferred_model=None, check_cancelled=None):
+        def fake_steps(page, preferred_model=None, check_cancelled=None):
             self.cancel()
-            return AI_RESULT
+            yield {"type": "done", "result": AI_RESULT}
 
-        with patch("api.views.summarize", side_effect=fake_summarize):
+        with patch("api.views.summarize_steps", side_effect=fake_steps):
             res = self.summarize()
         self.assertEqual(res.status_code, 499)
         self.assertEqual(self.used(), 0)
@@ -663,13 +748,13 @@ class CancelTests(SimpleTestCase):
             with self.assertRaises(Cancelled):
                 scrape_page("https://example.com/", check)
 
-    @patch("api.views.summarize", return_value=AI_RESULT)
+    @patch("api.views.summarize_steps", side_effect=ai_steps())
     @patch("api.views.scrape_page", return_value=FAKE_PAGE)
     def test_other_visitors_cant_cancel_your_request(self, *_):
         self.cancel(client=APIClient(REMOTE_ADDR="10.1.1.1"))
         self.assertEqual(self.summarize().status_code, 200)
 
-    @patch("api.views.summarize", return_value=AI_RESULT)
+    @patch("api.views.summarize_steps", side_effect=ai_steps())
     @patch("api.views.scrape_page", return_value=FAKE_PAGE)
     def test_cancelling_a_different_request_does_nothing(self, *_):
         self.cancel("other-request-1")
@@ -729,3 +814,39 @@ class ModelNameTests(SimpleTestCase):
         self.assertIn("gemini-3.8-flash", settings.GEMINI_MODELS)
         self.assertIn("gemini-3.1-flash-lite", settings.GEMINI_MODELS)
         self.assertFalse(any("pro" in m for m in settings.GEMINI_MODELS))
+
+
+@override_settings(GEMINI_CHECK_MODELS=False)
+class StreamTests(SimpleTestCase):
+    def setUp(self):
+        cache.clear()
+        for p in (fake_dns({"example.com": PUBLIC_IP}), patch.dict("os.environ", {"GEMINI_API_KEY": "k"})):
+            p.start()
+            self.addCleanup(p.stop)
+
+    @patch("api.views.scrape_page", return_value=FAKE_PAGE)
+    def test_progress_events_then_result(self, _):
+        def steps(page, preferred_model=None, check_cancelled=None):
+            yield {"type": "model", "provider": "Google Gemini", "model": "gem-a", "label": "Gem A"}
+            yield {"type": "model_switch", "from_label": "Gem A", "reason": "busy", "provider": "Google Gemini", "model": "gem-b", "label": "Gem B"}
+            yield {"type": "done", "result": {**AI_RESULT, "model": "gem-b", "model_label": "Gem B"}}
+
+        with patch("api.views.summarize_steps", side_effect=steps):
+            res = APIClient().post("/api/summarize/", {"url": "https://example.com"}, format="json")
+            reply = Reply(res)
+        self.assertEqual(res["Content-Type"], "application/x-ndjson")
+        self.assertEqual([e["type"] for e in reply.events], ["step", "step", "model", "model_switch", "result"])
+        self.assertEqual(reply.events[1]["title"], FAKE_PAGE["title"])
+        self.assertEqual(reply.json()["model_label"], "Gem B")
+        self.assertNotIn("failed_attempts", reply.json())
+
+    def test_bad_link_is_a_normal_http_error(self):
+        res = APIClient().post("/api/summarize/", {"url": "http://10.0.0.1/"}, format="json")
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.json()["code"], "private_address")
+
+    @patch("api.views.scrape_page", side_effect=ScrapeError("This website blocked our request", 422, "site_blocked"))
+    def test_errors_during_the_stream(self, _):
+        reply = Reply(APIClient().post("/api/summarize/", {"url": "https://example.com"}, format="json"))
+        self.assertEqual(reply.status_code, 422)
+        self.assertEqual(reply.json()["code"], "site_blocked")

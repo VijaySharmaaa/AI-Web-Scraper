@@ -8,7 +8,6 @@ const result = (url: string): SummaryResponse => ({
   summary: "sum",
   provider: "Google Gemini",
   model: "gem",
-  failed_attempts: [],
   char_count: 1,
   word_count: 1,
   truncated: false,

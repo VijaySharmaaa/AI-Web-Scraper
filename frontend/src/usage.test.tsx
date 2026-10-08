@@ -24,10 +24,9 @@ function health(remaining: number) {
 const RESULT = {
   title: "Test article",
   url: "https://example.com/article",
-  summary: "**TL;DR:** test",
+  summary: "A short test overview.",
   provider: "Google Gemini",
   model: "gem",
-  failed_attempts: [],
   char_count: 100,
   word_count: 20,
   truncated: false,
@@ -63,13 +62,13 @@ describe("daily usage", () => {
     const user = userEvent.setup();
     renderApp();
 
-    const ring = await screen.findByRole("img", { name: "2 of 3 summaries left today" });
+    const ring = await screen.findByRole("img", { name: "2 of 3 summaries left" });
     expect(ring).toHaveTextContent("2");
 
     await user.type(screen.getByLabelText("Web page URL"), "https://example.com/article");
     await user.click(screen.getByRole("button", { name: /^summarize$/i }));
     await screen.findByRole("heading", { name: RESULT.title });
-    expect(screen.getByRole("img", { name: "1 of 3 summaries left today" })).toHaveTextContent("1");
+    expect(screen.getByRole("img", { name: "1 of 3 summaries left" })).toHaveTextContent("1");
   });
 
   it("blocks the button once the limit is reached", async () => {
@@ -77,10 +76,10 @@ describe("daily usage", () => {
     const user = userEvent.setup();
     renderApp();
 
-    expect(await screen.findByRole("img", { name: /No summaries left today/ })).toHaveTextContent("0");
+    expect(await screen.findByRole("img", { name: /No summaries left/ })).toHaveTextContent("0");
     await user.type(screen.getByLabelText("Web page URL"), "https://example.com/article");
     expect(screen.getByRole("button", { name: /^summarize$/i })).toBeDisabled();
-    expect(screen.getByText(/You've used today's 3 summaries/)).toBeInTheDocument();
+    expect(screen.getByText(/You've used all 3 summaries/)).toBeInTheDocument();
   });
 
   it("explains a daily limit error from the server", async () => {
@@ -88,19 +87,19 @@ describe("daily usage", () => {
       1,
       () =>
         new Response(
-          JSON.stringify({ error: "You've used all 3 summaries for today.", code: "daily_limit", retry_after: 3600, resets_at: tomorrow }),
+          JSON.stringify({ error: "You've used all 3 summaries.", code: "daily_limit", retry_after: 3600, resets_at: tomorrow }),
           { status: 429 }
         )
     );
     const user = userEvent.setup();
     renderApp();
-    await screen.findByRole("img", { name: /summaries left today/ });
+    await screen.findByRole("img", { name: /summaries left/ });
 
     await user.type(screen.getByLabelText("Web page URL"), "https://example.com/article");
     await user.click(screen.getByRole("button", { name: /^summarize$/i }));
 
     expect(await screen.findByText("Daily limit reached")).toBeInTheDocument();
-    expect(screen.getByText(/You can summarize more pages/)).toBeInTheDocument();
+    expect(screen.getByText(/More summaries/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /try again/i })).not.toBeInTheDocument();
   });
 

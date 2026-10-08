@@ -1,3 +1,4 @@
+import { tidySummary } from "@/lib/format";
 import type { SummaryResponse } from "@/types";
 
 export interface Segment {
@@ -154,7 +155,7 @@ export async function buildSummaryPdf(result: SummaryResponse, date = new Date()
   y += 4;
   gray();
   const meta = [
-    `Summarized by ${result.provider} (${result.model})`,
+    `Summarized by ${result.provider} (${result.model_label || result.model})`,
     date.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }),
     `${result.word_count.toLocaleString("en-US")} words on the page`,
   ].join("  ·  ");
@@ -166,7 +167,7 @@ export async function buildSummaryPdf(result: SummaryResponse, date = new Date()
   y += 16;
 
   black();
-  for (const block of parseSummary(result.summary)) {
+  for (const block of parseSummary(tidySummary(result.summary))) {
     if (block.type === "bullet") {
       ensureSpace(17);
       doc.setFont("helvetica", "normal");

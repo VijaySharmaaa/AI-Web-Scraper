@@ -37,12 +37,6 @@ class CancelRequestSerializer(serializers.Serializer):
     request_id = serializers.RegexField(r"^[A-Za-z0-9-]{8,64}$")
 
 
-class FailedAttemptSerializer(serializers.Serializer):
-    provider = serializers.CharField()
-    model = serializers.CharField()
-    error = serializers.CharField()
-
-
 class SummarySerializer(serializers.Serializer):
     title = serializers.CharField()
     requested_model = serializers.CharField(allow_null=True)
@@ -51,7 +45,6 @@ class SummarySerializer(serializers.Serializer):
     provider = serializers.CharField()
     model = serializers.CharField()
     model_label = serializers.CharField(required=False)
-    failed_attempts = FailedAttemptSerializer(many=True)
     char_count = serializers.IntegerField()
     word_count = serializers.IntegerField()
     truncated = serializers.BooleanField()

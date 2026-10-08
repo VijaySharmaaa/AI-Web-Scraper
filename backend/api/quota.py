@@ -46,7 +46,7 @@ def reserve(request):
     if used > limit:
         cache.decr(key)
         raise QuotaExceeded(
-            f"You've used all {limit} summaries for today. You can summarize more after the daily reset.",
+            f"You've used all {limit} summaries. You can summarize more after the reset.",
             wait=seconds_left,
             resets_at=_resets_at(now).isoformat(),
         )

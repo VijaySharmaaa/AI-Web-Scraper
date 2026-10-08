@@ -1,17 +1,19 @@
+import json
 import logging
 import time
 
 from django.conf import settings
-from django.http import JsonResponse
+from django.http import JsonResponse, StreamingHttpResponse
 from rest_framework import status
+from rest_framework.exceptions import APIException
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .serializers import CancelRequestSerializer, SummarizeRequestSerializer, SummarySerializer
 from . import cancellation, quota
-from .exceptions import AIError, Cancelled
-from .services.ai import available_models, hidden_models, summarize, unavailable_models
-from .services.scraper import scrape_page
+from .exceptions import Cancelled
+from .serializers import CancelRequestSerializer, SummarizeRequestSerializer, SummarySerializer
+from .services.ai import available_models, hidden_models, model_chain, summarize_steps, unavailable_models
+from .services.scraper import precheck_url, scrape_page
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +40,10 @@ class HealthView(APIView):
         })
 
 
+def stream_line(event):
+    return json.dumps(event, ensure_ascii=False) + "\n"
+
+
 class SummarizeView(APIView):
 
     throttle_scope = "summarize"
@@ -48,29 +54,60 @@ class SummarizeView(APIView):
         url = serializer.validated_data["url"]
         model = serializer.validated_data.get("model") or None
 
-        if model and model not in {m["model"] for m in available_models()}:
-            raise AIError(f"The model '{model}' isn't available on this server.", 400, "invalid_model")
+        precheck_url(url)
+        model_chain(model)
+        check_cancelled = cancellation.checker(request, serializer.validated_data.get("request_id"))
+        quota.reserve(request)
 
         logger.info("Summarize request for %s (model: %s)", url, model or "auto")
+        response = StreamingHttpResponse(
+            self.events(request, url, model, check_cancelled),
+            content_type="application/x-ndjson",
+        )
+        response["X-Accel-Buffering"] = "no"
+        return response
+
+    def events(self, request, url, model, check_cancelled):
         start = time.time()
-
-        check_cancelled = cancellation.checker(request, serializer.validated_data.get("request_id"))
-
-        quota.reserve(request)
         try:
             check_cancelled()
+            yield stream_line({"type": "step", "step": "fetching"})
             page = scrape_page(url, check_cancelled)
-            ai = summarize(page, preferred_model=model, check_cancelled=check_cancelled)
+            yield stream_line({"type": "step", "step": "reading", "title": page["title"]})
+
+            ai = None
+            for step in summarize_steps(page, preferred_model=model, check_cancelled=check_cancelled):
+                if step["type"] == "done":
+                    ai = step["result"]
+                else:
+                    yield stream_line(step)
             check_cancelled()
-        except Exception as e:
+        except APIException as e:
             quota.refund(request)
             if isinstance(e, Cancelled):
                 logger.info("Cancelled by the user: %s", url)
-            raise
+            else:
+                logger.warning("Summarize failed (%s): %s", e.status_code, e.detail)
+            yield stream_line({
+                "type": "error",
+                "status": e.status_code,
+                "code": getattr(e, "error_code", None) or e.default_code,
+                "error": str(e.detail),
+            })
+            return
+        except Exception:
+            quota.refund(request)
+            logger.exception("Unexpected error while summarizing %s", url)
+            yield stream_line({
+                "type": "error",
+                "status": 500,
+                "code": "server_error",
+                "error": "Something went wrong on our side. Please try again.",
+            })
+            return
 
         took = round(time.time() - start, 2)
         logger.info("Finished %s in %ss using %s / %s", url, took, ai["provider"], ai["model"])
-
         result = SummarySerializer({
             "title": page["title"],
             "requested_model": model,
@@ -80,8 +117,8 @@ class SummarizeView(APIView):
             "truncated": page["truncated"],
             "took_seconds": took,
             **ai,
-        })
-        return Response({**result.data, "usage": quota.usage(request)}, status=status.HTTP_200_OK)
+        }).data
+        yield stream_line({"type": "result", "result": {**result, "usage": quota.usage(request)}})
 
 
 class CancelView(APIView):

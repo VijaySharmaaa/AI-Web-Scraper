@@ -1,7 +1,7 @@
 # AI Web Scraper
 
 Paste a webpage URL, the backend scrapes the main text from it, sends it to a free AI
-model, and you get a short summary back (a TL;DR plus key points).
+model, and you get a short summary back (a short overview plus the key points).
 
 **Live demo:** _add your Render URL here after deploying_
 
@@ -12,8 +12,9 @@ model, and you get a short summary back (a TL;DR plus key points).
 - **Themes**: light / dark / system mode and shadcn's base colors (Neutral, Zinc, Stone, Slate, Gray)
   from the palette button in the header. Neutral is the default
 - **Pick the AI model**: a picker inside the search box, like a chat composer: Auto (best available)
-  or any model the server has a key for. Models your key can't use are hidden automatically. If the
-  picked model is busy, the next one answers and the result says so
+  or any model the server has a key for. Models that can't be used are listed greyed out with the reason.
+  In Auto mode the loading card shows which model is writing and when it switches to the next one;
+  a chosen model that's busy gives a short message suggesting another model or Auto
 - **Real cancel**: Cancel (or Esc) stops the work on the server too, between steps, and gives the
   daily try back
 - **Every state handled**: loading steps with a cancel button, specific error messages (site blocked,
@@ -202,8 +203,22 @@ Request:
 { "url": "https://en.wikipedia.org/wiki/Web_scraping", "model": "llama-3.3-70b-versatile" }
 ```
 
+The response is a stream of JSON lines (`application/x-ndjson`) so the app can show progress:
+
+```
+{"type": "step", "step": "fetching"}
+{"type": "step", "step": "reading", "title": "Web scraping - Wikipedia"}
+{"type": "model", "provider": "Google Gemini", "model": "gemini-3.8-flash", "label": "Gemini 3.8 Flash"}
+{"type": "model_switch", "from_label": "Gemini 3.8 Flash", "reason": "busy", "label": "Gemini 3.7 Flash", ...}
+{"type": "result", "result": { ...the summary below... }}
+```
+
+If something fails after the stream started, the last line is `{"type": "error", "status": 422, "code": "...", "error": "..."}`.
+Problems found before starting (bad link, unknown model, limits) are normal JSON errors with a status code.
+
 `model` is optional. Leave it out (or send `""`) for automatic choice; otherwise it must be one of
-the models from `/api/health/`. The chosen model is tried first and the others stay as fallback.
+the models from `/api/health/`. With a chosen model only that model is used; if it's busy the error
+says so and suggests another model or Auto. Auto tries the models in order and reports each switch.
 
 Response `200`:
 
@@ -211,12 +226,10 @@ Response `200`:
 {
   "title": "Web scraping - Wikipedia",
   "url": "https://en.wikipedia.org/wiki/Web_scraping",
-  "summary": "**TL;DR:** ...\n\n**Key points:**\n- ...",
+  "summary": "A short overview...\n\n**Key points:**\n- ...",
   "provider": "Groq",
   "model": "llama-3.3-70b-versatile",
-  "failed_attempts": [
-    { "provider": "Google Gemini", "model": "gemini-flash-latest", "error": "rate limited / quota used up" }
-  ],
+  "model_label": "Llama 3.3 70b Versatile",
   "requested_model": "gemini-flash-latest",
   "char_count": 24311,
   "word_count": 4120,

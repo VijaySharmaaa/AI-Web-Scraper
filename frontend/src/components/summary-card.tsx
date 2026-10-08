@@ -10,7 +10,7 @@ import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { formatNumber, readingMinutes } from "@/lib/format";
+import { formatNumber, readingMinutes, tidySummary } from "@/lib/format";
 import { downloadSummaryPdf, fitsBuiltInFont, printSummary } from "@/lib/pdf";
 import { hostnameOf } from "@/lib/url";
 import type { SummaryResponse } from "@/types";
@@ -22,13 +22,14 @@ interface Props {
 }
 
 function toPlainText(result: SummaryResponse) {
-  return `${result.title}\n${result.url}\n\n${result.summary}\n\n(Summarized by ${result.provider} · ${result.model})`;
+  const model = result.model_label || result.model;
+  return `${result.title}\n${result.url}\n\n${tidySummary(result.summary)}\n\n(Summarized by ${result.provider} · ${model})`;
 }
 
 export function SummaryCard({ result, onNew, fromHistory }: Props) {
   const [copied, setCopied] = useState(false);
   const [makingPdf, setMakingPdf] = useState(false);
-  const fellBack = result.failed_attempts.length > 0;
+  const summary = tidySummary(result.summary);
 
   async function copy() {
     try {
@@ -43,7 +44,7 @@ export function SummaryCard({ result, onNew, fromHistory }: Props) {
   }
 
   async function downloadPdf() {
-    if (!fitsBuiltInFont(result.title + result.summary)) {
+    if (!fitsBuiltInFont(result.title + summary)) {
       toast("Choose “Save as PDF” in the print window", {
         description: "This page uses characters the quick PDF export can't draw.",
       });
@@ -94,7 +95,7 @@ export function SummaryCard({ result, onNew, fromHistory }: Props) {
               img: () => null,
             }}
           >
-            {result.summary}
+            {summary}
           </Markdown>
         </div>
 
@@ -119,30 +120,10 @@ export function SummaryCard({ result, onNew, fromHistory }: Props) {
                 {result.provider} · {result.model_label || result.model}
               </Badge>
             </TooltipTrigger>
-            <TooltipContent className="text-left">
-              {fellBack ? (
-                <div className="space-y-1">
-                  <p className="font-medium">
-                    {result.requested_model ? `You picked ${result.requested_model}, it was unavailable` : "Answered by a fallback model"}
-                  </p>
-                  {result.failed_attempts.map((a) => (
-                    <p key={`${a.provider}-${a.model}`}>
-                      {a.provider} · {a.model}: {a.error}
-                    </p>
-                  ))}
-                </div>
-              ) : result.requested_model ? (
-                "The model you picked wrote this summary"
-              ) : (
-                "AI model that wrote this summary (picked automatically)"
-              )}
+            <TooltipContent>
+              {result.requested_model ? "Written by the model you picked" : "Written by the model Auto picked"}
             </TooltipContent>
           </Tooltip>
-          {fellBack && (
-            <Badge variant="outline" className="border-amber-300 text-amber-700 dark:border-amber-800 dark:text-amber-400">
-              fallback
-            </Badge>
-          )}
           <span className="inline-flex items-center gap-1 text-muted-foreground">
             <FileText className="size-3.5" />
             {formatNumber(result.word_count)} words

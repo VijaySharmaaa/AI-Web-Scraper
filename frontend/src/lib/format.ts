@@ -24,3 +24,9 @@ export function formatResetTime(iso: string, now = new Date()) {
   const sameDay = date.toDateString() === now.toDateString();
   return sameDay ? `at ${time}` : `tomorrow at ${time}`;
 }
+
+const LEADING_LABEL = /^\s*\**\s*(tl\s*;?\s*dr|summary|overview)\s*\**\s*:\s*\**\s*/i;
+
+export function tidySummary(text: string) {
+  return text.replace(LEADING_LABEL, "").trim();
+}

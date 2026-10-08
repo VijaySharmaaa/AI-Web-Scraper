@@ -9,10 +9,9 @@ import { ThemeProvider } from "@/hooks/use-theme";
 const RESULT = {
   title: "Test article",
   url: "https://example.com/article",
-  summary: "**TL;DR:** test",
+  summary: "A short test overview.",
   provider: "Google Gemini",
   model: "gem",
-  failed_attempts: [],
   char_count: 100,
   word_count: 20,
   truncated: false,

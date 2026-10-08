@@ -15,8 +15,8 @@ export function UsageRing({ usage }: { usage: Usage }) {
   const segments = Math.max(1, Math.min(limit, 12));
   const length = CIRCUMFERENCE / segments - (segments > 1 ? GAP : 0);
   const label = empty
-    ? `No summaries left today, resets ${formatResetTime(usage.resets_at)}`
-    : `${remaining} of ${limit} summaries left today`;
+    ? `No summaries left, resets ${formatResetTime(usage.resets_at)}`
+    : `${remaining} of ${limit} summaries left`;
 
   return (
     <Tooltip>

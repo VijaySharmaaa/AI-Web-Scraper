@@ -7,7 +7,7 @@ import type { ModelOption } from "@/types";
 const STEPS = [
   { icon: Link2, title: "Paste a link", text: "Any article, blog post, docs or Wikipedia page." },
   { icon: FileText, title: "We read the page", text: "The main text is pulled out, menus and ads are skipped." },
-  { icon: Sparkles, title: "AI sums it up", text: "You get a TL;DR and the key points in a few seconds." },
+  { icon: Sparkles, title: "AI sums it up", text: "You get a short overview and the key points in a few seconds." },
 ];
 
 interface Props {

@@ -1,9 +1,3 @@
-export interface FailedAttempt {
-  provider: string;
-  model: string;
-  error: string;
-}
-
 export interface SummaryResponse {
   title: string;
   requested_model?: string | null;
@@ -12,7 +6,6 @@ export interface SummaryResponse {
   provider: string;
   model: string;
   model_label?: string;
-  failed_attempts: FailedAttempt[];
   char_count: number;
   word_count: number;
   truncated: boolean;
@@ -59,3 +52,8 @@ export interface HistoryItem extends SummaryResponse {
   id: string;
   created_at: number;
 }
+
+export type Progress =
+  | { type: "step"; step: "fetching" | "reading"; title?: string }
+  | { type: "model"; provider: string; model: string; label: string }
+  | { type: "model_switch"; from_label: string; reason: string; provider: string; model: string; label: string };

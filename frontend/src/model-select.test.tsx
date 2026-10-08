@@ -20,11 +20,10 @@ const HEALTH = {
 const RESULT = {
   title: "Test article",
   url: "https://example.com/article",
-  summary: "**TL;DR:** test",
+  summary: "A short test overview.",
   provider: "Groq",
   model: "llama-3.3-70b-versatile",
   requested_model: "llama-3.3-70b-versatile",
-  failed_attempts: [],
   char_count: 100,
   word_count: 20,
   truncated: false,
