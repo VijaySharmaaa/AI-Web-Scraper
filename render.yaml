@@ -4,14 +4,23 @@ services:
     runtime: python
     plan: free
     buildCommand: ./build.sh
-    startCommand: cd backend && gunicorn config.wsgi --bind 0.0.0.0:$PORT --timeout 90
+    startCommand: cd backend && gunicorn config.wsgi --bind 0.0.0.0:$PORT --workers 2 --timeout 120
     healthCheckPath: /api/health/
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.7
+      - key: NODE_VERSION
+        value: 22.12.0
       - key: DJANGO_DEBUG
         value: "False"
       - key: DJANGO_SECRET_KEY
         generateValue: true
+      # Render's load balancer is 1 proxy in front of the app, so the rate
+      # limiter can read the real visitor ip from X-Forwarded-For
+      - key: NUM_PROXIES
+        value: "1"
+      # add at least one of these in the Render dashboard
       - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
         sync: false

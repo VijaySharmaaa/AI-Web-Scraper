@@ -5,6 +5,7 @@ Django settings for the AI Web Scraper backend.
 import logging
 import os
 import secrets
+import tempfile
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -83,8 +84,20 @@ STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 # serves frontend/dist/assets/* etc. from the site root
 WHITENOISE_ROOT = FRONTEND_DIST if FRONTEND_DIST.exists() else None
+# vite puts a hash in every asset file name, so browsers can cache them forever
+WHITENOISE_IMMUTABLE_FILE_TEST = r"^/assets/.+-[A-Za-z0-9_-]{8,}\.\w+$"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# the rate limiter keeps its counters in the cache. A file cache is shared by
+# all gunicorn workers, the default in-memory one would give every worker its
+# own counters (and so a higher real limit).
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.filebased.FileBasedCache",
+        "LOCATION": os.getenv("CACHE_DIR", os.path.join(tempfile.gettempdir(), "ai-web-scraper-cache")),
+    }
+}
 
 # the api only accepts small json bodies
 DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024
@@ -115,6 +128,14 @@ if env_bool("DJANGO_SECURE_HTTPS", bool(RENDER_HOST)):
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
+
+SILENCED_SYSTEM_CHECKS = [
+    # no CSRF middleware: there are no cookies, sessions or logins to steal, and the
+    # api only accepts JSON (forms on other sites get a 415), so CSRF doesn't apply
+    "security.W003",
+    # HSTS preload is a permanent opt-in for the whole domain, leave it to the owner
+    "security.W021",
+]
 
 REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
