@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { ConsentBanner } from "@/components/consent-banner";
 import { ErrorCard } from "@/components/error-card";
 import { HistoryList } from "@/components/history-list";
 import { HowItWorks } from "@/components/how-it-works";
@@ -11,7 +12,8 @@ import { UrlForm } from "@/components/url-form";
 import { useOnline } from "@/hooks/use-online";
 import { ApiError, getHealth, summarizeUrl } from "@/lib/api";
 import { describeError, type ErrorInfo } from "@/lib/errors";
-import { addToHistory, createHistoryItem, loadHistory, saveHistory } from "@/lib/history";
+import { loadConsent, saveConsent, type Consent } from "@/lib/consent";
+import { addToHistory, clearSavedHistory, createHistoryItem, loadHistory, saveHistory } from "@/lib/history";
 import type { HistoryItem, SummaryResponse } from "@/types";
 
 // the markdown renderer is the biggest dependency and only needed once there's a result
@@ -26,7 +28,9 @@ type View =
 export default function App() {
   const [input, setInput] = useState("");
   const [view, setView] = useState<View>({ status: "idle" });
-  const [history, setHistory] = useState<HistoryItem[]>(loadHistory);
+  const [consent, setConsent] = useState<Consent | null>(loadConsent);
+  // only read saved history if the visitor allowed saving it
+  const [history, setHistory] = useState<HistoryItem[]>(() => (loadConsent() === "granted" ? loadHistory() : []));
   const [health, setHealth] = useState<HealthState>({ status: "checking" });
   const online = useOnline();
 
@@ -54,7 +58,27 @@ export default function App() {
     if (online && health.status === "down") checkHealth();
   }, [online]);
 
-  useEffect(() => saveHistory(history), [history]);
+  useEffect(() => {
+    if (consent === "granted") saveHistory(history);
+  }, [history, consent]);
+
+  function allowStorage() {
+    saveConsent("granted");
+    setConsent("granted");
+    toast.success("Your history will be saved on this device");
+  }
+
+  function denyStorage() {
+    saveConsent("denied");
+    setConsent("denied");
+    clearSavedHistory();
+    toast("Got it. History is only kept until you close this tab.");
+  }
+
+  function reopenConsent() {
+    saveConsent(null);
+    setConsent(null);
+  }
 
   // keyboard shortcuts: "/" or ctrl+k focuses the input, esc cancels
   useEffect(() => {
@@ -217,6 +241,8 @@ export default function App() {
           <aside className="min-w-0 space-y-6 lg:sticky lg:top-20" aria-label="History and help">
             <HistoryList
               items={history}
+              consent={consent}
+              onAllowSaving={allowStorage}
               activeId={view.status === "success" ? view.historyId : undefined}
               onSelect={openFromHistory}
               onRemove={removeFromHistory}
@@ -232,9 +258,14 @@ export default function App() {
           Summaries are written by AI and can contain mistakes. Check the original page for anything important.
           {health.status === "ok" && health.data.providers.length > 0 && (
             <> Powered by {health.data.providers.join(" + ")}.</>
-          )}
+          )}{" "}
+          <button type="button" onClick={reopenConsent} className="underline underline-offset-4 hover:text-foreground">
+            Storage settings
+          </button>
         </p>
       </footer>
+
+      {consent === null && <ConsentBanner onAllow={allowStorage} onDeny={denyStorage} />}
     </div>
   );
 }

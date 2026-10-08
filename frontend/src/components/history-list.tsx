@@ -1,5 +1,7 @@
 import { History, Trash2, X } from "lucide-react";
 
+import type { Consent } from "@/lib/consent";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,13 +21,24 @@ import type { HistoryItem } from "@/types";
 
 interface Props {
   items: HistoryItem[];
+  consent: Consent | null;
+  onAllowSaving: () => void;
   activeId?: string;
   onSelect: (item: HistoryItem) => void;
   onRemove: (id: string) => void;
   onClear: () => void;
 }
 
-export function HistoryList({ items, activeId, onSelect, onRemove, onClear }: Props) {
+export function HistoryList({ items, consent, onAllowSaving, activeId, onSelect, onRemove, onClear }: Props) {
+  const notSaved = consent === "denied" && (
+    <p className="text-xs text-muted-foreground">
+      History isn't saved on this device.{" "}
+      <button type="button" onClick={onAllowSaving} className="font-medium text-foreground underline underline-offset-4">
+        Save it
+      </button>
+    </p>
+  );
+
   if (items.length === 0) {
     // placeholder only in the desktop sidebar, on phones it would just push content down
     return (
@@ -37,6 +50,7 @@ export function HistoryList({ items, activeId, onSelect, onRemove, onClear }: Pr
         <div className="rounded-xl border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
           Your summaries will show up here so you can open them again later.
         </div>
+        {notSaved}
       </section>
     );
   }
@@ -74,6 +88,8 @@ export function HistoryList({ items, activeId, onSelect, onRemove, onClear }: Pr
           </AlertDialogContent>
         </AlertDialog>
       </div>
+
+      {notSaved}
 
       <ul className="divide-y overflow-hidden rounded-xl border bg-card">
         {items.map((item) => (

@@ -16,6 +16,14 @@ export function loadHistory(): HistoryItem[] {
   }
 }
 
+export function clearSavedHistory() {
+  try {
+    localStorage.removeItem(KEY);
+  } catch {
+    // nothing to do
+  }
+}
+
 export function saveHistory(items: HistoryItem[]) {
   try {
     localStorage.setItem(KEY, JSON.stringify(items.slice(0, MAX_ITEMS)));
