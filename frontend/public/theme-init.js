@@ -8,7 +8,7 @@
     root.classList.toggle("dark", dark);
 
     // keep this list in sync with src/lib/themes.ts
-    var colors = ["zinc", "stone", "slate", "gray", "blue", "green", "orange", "rose", "red", "yellow"];
+    var colors = ["zinc", "stone", "slate", "gray"];
     var color = localStorage.getItem("theme-color");
     if (colors.indexOf(color) !== -1) root.setAttribute("data-color", color);
   } catch (e) {

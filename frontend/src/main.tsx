@@ -12,7 +12,7 @@ createRoot(document.getElementById("root")!).render(
     <ThemeProvider>
       <TooltipProvider delayDuration={300}>
         <App />
-        <Toaster position="bottom-center" richColors closeButton />
+        <Toaster position="bottom-center" closeButton />
       </TooltipProvider>
     </ThemeProvider>
   </StrictMode>

@@ -1,8 +1,9 @@
-import { Check, Globe, FileText, Loader2, Sparkles } from "lucide-react";
+import { Check, Globe, FileText, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Spinner } from "@/components/ui/spinner";
 import { useElapsed } from "@/hooks/use-elapsed";
 import { hostnameOf } from "@/lib/url";
 import { cn } from "@/lib/utils";
@@ -47,7 +48,7 @@ export function LoadingCard({ url, onCancel }: { url: string; onCancel: () => vo
                     !done && !active && "text-muted-foreground"
                   )}
                 >
-                  {done ? <Check className="size-3.5" /> : active ? <Loader2 className="size-3.5 animate-spin" /> : <Icon className="size-3.5" />}
+                  {done ? <Check className="size-3.5" /> : active ? <Spinner className="size-3.5 border-[1.5px]" aria-hidden="true" role="presentation" /> : <Icon className="size-3.5" />}
                 </span>
                 <span className={cn(!done && !active && "text-muted-foreground", active && "font-medium")}>
                   {step.label}

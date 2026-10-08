@@ -201,6 +201,7 @@ describe("App", () => {
 
     await user.click(screen.getByRole("button", { name: /clear all/i }));
     await user.click(await screen.findByRole("button", { name: "Clear history" }));
-    await waitFor(() => expect(screen.queryByRole("region", { name: /recent summaries/i })).not.toBeInTheDocument());
+    expect(await screen.findByText(/Your summaries will show up here/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /clear all/i })).not.toBeInTheDocument();
   });
 });

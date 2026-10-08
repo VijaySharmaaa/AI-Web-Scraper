@@ -24,9 +24,9 @@ describe("ThemeMenu", () => {
     renderMenu();
 
     await user.click(screen.getByRole("button", { name: "Theme settings" }));
-    await user.click(screen.getByRole("button", { name: "Blue" }));
-    expect(document.documentElement.getAttribute("data-color")).toBe("blue");
-    expect(localStorage.getItem("theme-color")).toBe("blue");
+    await user.click(screen.getByRole("button", { name: "Zinc" }));
+    expect(document.documentElement.getAttribute("data-color")).toBe("zinc");
+    expect(localStorage.getItem("theme-color")).toBe("zinc");
 
     await user.click(screen.getByRole("button", { name: "Dark" }));
     expect(document.documentElement.classList.contains("dark")).toBe(true);
@@ -38,7 +38,7 @@ describe("ThemeMenu", () => {
   });
 
   it("ignores junk or removed colors in storage", () => {
-    for (const saved of ["<script>", "violet"]) {
+    for (const saved of ["<script>", "violet", "blue"]) {
       localStorage.setItem("theme-color", saved);
       const { unmount } = renderMenu();
       expect(document.documentElement.hasAttribute("data-color")).toBe(false);
@@ -46,10 +46,12 @@ describe("ThemeMenu", () => {
     }
   });
 
-  it("has no purple options", async () => {
+  it("only offers the neutral base colors", async () => {
     const user = userEvent.setup();
     renderMenu();
     await user.click(screen.getByRole("button", { name: "Theme settings" }));
-    expect(screen.queryByRole("button", { name: /violet|purple|indigo/i })).not.toBeInTheDocument();
+    const colors = screen.getByRole("group", { name: "Color" });
+    expect(colors.querySelectorAll("button")).toHaveLength(5);
+    expect(screen.queryByRole("button", { name: /violet|blue|green|orange|rose|red|yellow/i })).not.toBeInTheDocument();
   });
 });

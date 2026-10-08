@@ -3,6 +3,7 @@ import { toast } from "sonner";
 
 import { ErrorCard } from "@/components/error-card";
 import { HistoryList } from "@/components/history-list";
+import { HowItWorks } from "@/components/how-it-works";
 import { LoadingCard } from "@/components/loading-card";
 import { SiteHeader } from "@/components/site-header";
 import { StatusBanner, type HealthState } from "@/components/status-banner";
@@ -170,59 +171,64 @@ export default function App() {
     <div className="flex min-h-dvh flex-col">
       <SiteHeader />
 
-      <main className="mx-auto w-full max-w-3xl flex-1 px-4 pt-10 pb-16 sm:px-6 sm:pt-16">
-        <section className="mb-8 text-center sm:mb-10">
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 pt-10 pb-16 sm:px-6 sm:pt-14 lg:px-8">
+        <section className="mx-auto mb-8 max-w-2xl text-center sm:mb-10">
           <h1 className="text-3xl font-bold tracking-tight text-balance sm:text-4xl">
             Get the gist of any web page
           </h1>
-          <p className="mx-auto mt-3 max-w-xl text-base text-pretty text-muted-foreground sm:text-lg">
+          <p className="mt-3 text-base text-pretty text-muted-foreground sm:text-lg">
             Paste a link. We read the page and AI writes you a short summary with the key points.
           </p>
         </section>
 
-        <div className="space-y-6">
-          <StatusBanner online={online} health={health} onRecheck={checkHealth} />
+        <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start xl:grid-cols-[minmax(0,1fr)_22rem]">
+          <div className="min-w-0 space-y-6">
+            <StatusBanner online={online} health={health} onRecheck={checkHealth} />
 
-          <UrlForm
-            value={input}
-            onChange={setInput}
-            onSubmit={summarize}
-            loading={loading}
-            blockedReason={blockedReason}
-            inputRef={inputRef}
-            showExamples={view.status === "idle" && history.length === 0}
-          />
+            <UrlForm
+              value={input}
+              onChange={setInput}
+              onSubmit={summarize}
+              loading={loading}
+              blockedReason={blockedReason}
+              inputRef={inputRef}
+              showExamples={view.status === "idle" && history.length === 0}
+            />
 
-          {/* screen readers hear when the result is ready */}
-          <p className="sr-only" aria-live="polite">
-            {view.status === "success" && !view.fromHistory && `Summary ready: ${view.result.title}`}
-            {view.status === "error" && `Error: ${view.error.title}. ${view.error.message}`}
-          </p>
+            {/* screen readers hear when the result is ready */}
+            <p className="sr-only" aria-live="polite">
+              {view.status === "success" && !view.fromHistory && `Summary ready: ${view.result.title}`}
+              {view.status === "error" && `Error: ${view.error.title}. ${view.error.message}`}
+            </p>
 
-          <div ref={resultRef} className="scroll-mt-20">
-            {view.status === "loading" && <LoadingCard url={view.url} onCancel={cancel} />}
-            {view.status === "error" && (
-              <ErrorCard error={view.error} errorKey={view.key} onRetry={() => summarize(view.url)} onEdit={editUrl} />
-            )}
-            {view.status === "success" && (
-              <Suspense fallback={<div className="h-64 animate-pulse rounded-xl border bg-card" />}>
-                <SummaryCard result={view.result} onNew={startOver} fromHistory={view.fromHistory} />
-              </Suspense>
-            )}
+            <div ref={resultRef} className="scroll-mt-20 empty:hidden">
+              {view.status === "loading" && <LoadingCard url={view.url} onCancel={cancel} />}
+              {view.status === "error" && (
+                <ErrorCard error={view.error} errorKey={view.key} onRetry={() => summarize(view.url)} onEdit={editUrl} />
+              )}
+              {view.status === "success" && (
+                <Suspense fallback={<div className="h-64 animate-pulse rounded-xl border bg-card" />}>
+                  <SummaryCard result={view.result} onNew={startOver} fromHistory={view.fromHistory} />
+                </Suspense>
+              )}
+            </div>
           </div>
 
-          <HistoryList
-            items={history}
-            activeId={view.status === "success" ? view.historyId : undefined}
-            onSelect={openFromHistory}
-            onRemove={removeFromHistory}
-            onClear={clearHistory}
-          />
+          <aside className="min-w-0 space-y-6 lg:sticky lg:top-20" aria-label="History and help">
+            <HistoryList
+              items={history}
+              activeId={view.status === "success" ? view.historyId : undefined}
+              onSelect={openFromHistory}
+              onRemove={removeFromHistory}
+              onClear={clearHistory}
+            />
+            <HowItWorks models={health.status === "ok" ? health.data.models : []} />
+          </aside>
         </div>
       </main>
 
       <footer className="border-t py-6 text-center text-xs text-muted-foreground">
-        <p className="mx-auto max-w-3xl px-4">
+        <p className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
           Summaries are written by AI and can contain mistakes. Check the original page for anything important.
           {health.status === "ok" && health.data.providers.length > 0 && (
             <> Powered by {health.data.providers.join(" + ")}.</>

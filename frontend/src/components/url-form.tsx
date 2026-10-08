@@ -1,8 +1,9 @@
 import { useState, type FormEvent, type RefObject } from "react";
-import { ClipboardPaste, Link2, Loader2, Sparkles, X } from "lucide-react";
+import { ClipboardPaste, Link2, Sparkles, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { checkUrl } from "@/lib/url";
 import { cn } from "@/lib/utils";
@@ -115,7 +116,7 @@ export function UrlForm({ value, onChange, onSubmit, loading, blockedReason, inp
           </div>
         </div>
         <Button type="submit" size="lg" className="h-11 sm:w-36" disabled={loading || !!blockedReason || !value.trim()}>
-          {loading ? <Loader2 className="animate-spin" /> : <Sparkles />}
+          {loading ? <Spinner aria-hidden="true" role="presentation" /> : <Sparkles />}
           {loading ? "Summarizing…" : "Summarize"}
         </Button>
       </div>

@@ -4,7 +4,7 @@
 @custom-variant dark (&:is(.dark *));
 
 /* ---- shadcn/ui themes ---- */
-/* Neutral is the default, the others are picked in the theme menu (data-color on <html>) */
+/* Neutral is the default, the other base colors are picked in the theme menu (data-color on <html>) */
 
 :root {
   --radius: 0.625rem;
@@ -204,75 +204,6 @@ html.dark[data-color="gray"] {
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.551 0.027 264.364);
 }
-
-/* accent colors sit on top of the neutral base */
-html[data-color="blue"] {
-  --primary: oklch(0.546 0.245 262.881);
-  --primary-foreground: oklch(0.985 0 0);
-  --ring: oklch(0.546 0.245 262.881);
-}
-html.dark[data-color="blue"] {
-  --primary: oklch(0.623 0.214 259.815);
-  --primary-foreground: oklch(0.205 0 0);
-  --ring: oklch(0.623 0.214 259.815);
-}
-
-html[data-color="green"] {
-  --primary: oklch(0.527 0.154 150.069);
-  --primary-foreground: oklch(0.985 0 0);
-  --ring: oklch(0.527 0.154 150.069);
-}
-html.dark[data-color="green"] {
-  --primary: oklch(0.627 0.194 149.214);
-  --primary-foreground: oklch(0.205 0 0);
-  --ring: oklch(0.627 0.194 149.214);
-}
-
-html[data-color="orange"] {
-  --primary: oklch(0.553 0.195 38.402);
-  --primary-foreground: oklch(0.985 0 0);
-  --ring: oklch(0.553 0.195 38.402);
-}
-html.dark[data-color="orange"] {
-  --primary: oklch(0.646 0.222 41.116);
-  --primary-foreground: oklch(0.205 0 0);
-  --ring: oklch(0.646 0.222 41.116);
-}
-
-html[data-color="rose"] {
-  --primary: oklch(0.514 0.222 16.935);
-  --primary-foreground: oklch(0.985 0 0);
-  --ring: oklch(0.514 0.222 16.935);
-}
-html.dark[data-color="rose"] {
-  --primary: oklch(0.645 0.246 16.439);
-  --primary-foreground: oklch(0.205 0 0);
-  --ring: oklch(0.645 0.246 16.439);
-}
-
-html[data-color="red"] {
-  --primary: oklch(0.577 0.245 27.325);
-  --primary-foreground: oklch(0.985 0 0);
-  --ring: oklch(0.577 0.245 27.325);
-}
-html.dark[data-color="red"] {
-  --primary: oklch(0.637 0.237 25.331);
-  --primary-foreground: oklch(0.205 0 0);
-  --ring: oklch(0.637 0.237 25.331);
-}
-
-html[data-color="yellow"] {
-  --primary: oklch(0.554 0.135 66.442);
-  --primary-foreground: oklch(0.985 0 0);
-  --ring: oklch(0.554 0.135 66.442);
-}
-html.dark[data-color="yellow"] {
-  --primary: oklch(0.852 0.199 91.936);
-  --primary-foreground: oklch(0.205 0 0);
-  --ring: oklch(0.852 0.199 91.936);
-}
-
-
 
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);

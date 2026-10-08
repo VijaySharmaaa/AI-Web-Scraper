@@ -26,7 +26,20 @@ interface Props {
 }
 
 export function HistoryList({ items, activeId, onSelect, onRemove, onClear }: Props) {
-  if (items.length === 0) return null;
+  if (items.length === 0) {
+    // placeholder only in the desktop sidebar, on phones it would just push content down
+    return (
+      <section aria-labelledby="history-heading" className="hidden space-y-3 lg:block">
+        <h2 id="history-heading" className="flex h-7 items-center gap-2 text-sm font-medium text-muted-foreground">
+          <History className="size-4" />
+          Recent summaries
+        </h2>
+        <div className="rounded-xl border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
+          Your summaries will show up here so you can open them again later.
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section aria-labelledby="history-heading" className="space-y-3">

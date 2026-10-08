@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import { useTheme, type Theme } from "@/hooks/use-theme";
-import { ACCENT_COLORS, BASE_COLORS, DEFAULT_COLOR, type ThemeColor } from "@/lib/themes";
+import { BASE_COLORS, DEFAULT_COLOR, type ThemeColor } from "@/lib/themes";
 import { cn } from "@/lib/utils";
 
 const MODES: { value: Theme; label: string; icon: typeof Sun }[] = [
@@ -98,22 +98,14 @@ export function ThemeMenu() {
         <Separator />
 
         <div className="space-y-2">
-          <p className="text-xs font-medium text-muted-foreground">Base color</p>
-          <div className="grid grid-cols-3 gap-2" role="group" aria-label="Base color">
+          <p className="text-xs font-medium text-muted-foreground">Color</p>
+          <div className="grid grid-cols-3 gap-2" role="group" aria-label="Color">
             {BASE_COLORS.map((c) => (
               <ColorButton key={c.name} {...c} />
             ))}
           </div>
         </div>
 
-        <div className="space-y-2">
-          <p className="text-xs font-medium text-muted-foreground">Accent color</p>
-          <div className="grid grid-cols-3 gap-2" role="group" aria-label="Accent color">
-            {ACCENT_COLORS.map((c) => (
-              <ColorButton key={c.name} {...c} />
-            ))}
-          </div>
-        </div>
       </PopoverContent>
     </Popover>
   );
