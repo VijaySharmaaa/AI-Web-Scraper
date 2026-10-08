@@ -149,14 +149,14 @@ GEMINI_API_URL = os.getenv(
     "GEMINI_API_URL", "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 )
 GROQ_API_URL = os.getenv("GROQ_API_URL", "https://api.groq.com/openai/v1/chat/completions")
-GEMINI_MODELS = env_list(
-    "GEMINI_MODELS",
-    os.getenv(
-        "GEMINI_MODEL",
-        "gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-3-flash,gemini-2.5-flash,"
-        "gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-2.5-flash-lite",
-    ),
+DEFAULT_GEMINI_MODELS = (
+    "gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-3-flash,gemini-2.5-flash,"
+    "gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-2.5-flash-lite"
 )
+GEMINI_MODELS = env_list("GEMINI_MODELS", DEFAULT_GEMINI_MODELS)
+PREFERRED_GEMINI_MODEL = os.getenv("GEMINI_MODEL", "").strip()
+if PREFERRED_GEMINI_MODEL and not os.getenv("GEMINI_MODELS", "").strip():
+    GEMINI_MODELS = [PREFERRED_GEMINI_MODEL] + [m for m in GEMINI_MODELS if m != PREFERRED_GEMINI_MODEL]
 GEMINI_LIST_MODELS_URL = os.getenv("GEMINI_LIST_MODELS_URL", "https://generativelanguage.googleapis.com/v1beta/models")
 GEMINI_CHECK_MODELS = env_bool("GEMINI_CHECK_MODELS", True)
 MODEL_CHECK_CACHE_SECONDS = env_int("MODEL_CHECK_CACHE_SECONDS", 3600)
