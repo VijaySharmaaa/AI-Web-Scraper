@@ -3,6 +3,7 @@ import logging
 import os
 import socket
 import ssl
+import time
 from urllib.parse import urlsplit, urlunsplit
 from urllib.request import getproxies, proxy_bypass
 
@@ -21,6 +22,9 @@ MAX_REDIRECTS = 5
 MAX_URL_LENGTH = 2000
 ALLOWED_PORTS = {None, 80, 443, 8080, 8443}
 TIMEOUT = httpx.Timeout(15, connect=8)
+# httpx timeouts are per step (connect, each read...), so a slow site with
+# redirects could take minutes. This caps the whole download.
+TOTAL_TIME_LIMIT = 30
 # tests swap this for a fake transport
 TRANSPORT = None
 
@@ -39,20 +43,20 @@ JUNK_TAGS = ["script", "style", "noscript", "iframe", "svg", "canvas", "form",
 def validate_url(url):
     """Basic checks on the url itself, before we touch the network."""
     if len(url) > MAX_URL_LENGTH:
-        raise ScrapeError("That URL is too long")
+        raise ScrapeError("That URL is too long", code="invalid_url")
 
     try:
         parts = urlsplit(url)
         port = parts.port
     except ValueError:
-        raise ScrapeError("That doesn't look like a valid URL") from None
+        raise ScrapeError("That doesn't look like a valid URL", code="invalid_url") from None
 
     if parts.scheme not in ("http", "https") or not parts.hostname:
-        raise ScrapeError("Only http:// and https:// links are supported")
+        raise ScrapeError("Only http:// and https:// links are supported", code="invalid_url")
     if parts.username or parts.password:
-        raise ScrapeError("URLs with a username or password are not allowed")
+        raise ScrapeError("URLs with a username or password are not allowed", code="invalid_url")
     if port not in ALLOWED_PORTS:
-        raise ScrapeError(f"Port {port} is not allowed, use a normal website address")
+        raise ScrapeError(f"Port {port} is not allowed, use a normal website address", code="invalid_url")
     return parts
 
 
@@ -65,7 +69,7 @@ def resolve_public_ip(hostname):
     try:
         infos = socket.getaddrinfo(hostname, None, proto=socket.IPPROTO_TCP)
     except (socket.gaierror, UnicodeError):
-        raise ScrapeError(f"Could not find the website '{hostname}'. Check the spelling.", 422) from None
+        raise ScrapeError(f"Could not find the website '{hostname}'. Check the spelling.", 422, "dns_not_found") from None
 
     ips = []
     for info in infos:
@@ -74,11 +78,11 @@ def resolve_public_ip(hostname):
             ip = ip.ipv4_mapped
         if not ip.is_global or ip.is_multicast:
             logger.warning("Blocked non-public address %s for host %s", ip, hostname)
-            raise ScrapeError("That address points to a private or local network, which isn't allowed")
+            raise ScrapeError("That address points to a private or local network, which isn't allowed", code="private_address")
         ips.append(ip)
 
     if not ips:
-        raise ScrapeError(f"Could not find the website '{hostname}'", 422)
+        raise ScrapeError(f"Could not find the website '{hostname}'", 422, "dns_not_found")
     return ips[0]
 
 
@@ -117,10 +121,12 @@ def build_request(clients, url):
     return client, request
 
 
-def read_limited(response):
+def read_limited(response, deadline):
     chunks = []
     total = 0
     for chunk in response.iter_bytes():
+        if time.monotonic() > deadline:
+            raise ScrapeError("The website is sending the page too slowly", 504, "site_timeout")
         room = MAX_DOWNLOAD_BYTES - total
         if len(chunk) >= room:
             # keep what fits and stop, don't throw the whole chunk away
@@ -134,6 +140,7 @@ def read_limited(response):
 
 def fetch_html(url):
     logger.debug("Fetching %s", url)
+    deadline = time.monotonic() + TOTAL_TIME_LIMIT
 
     try:
         options = {"headers": HEADERS, "timeout": TIMEOUT, "follow_redirects": False, "transport": TRANSPORT}
@@ -144,6 +151,8 @@ def fetch_html(url):
         with httpx.Client(trust_env=False, verify=verify, **options) as direct, httpx.Client(**options) as proxy:
             clients = {"direct": direct, "proxy": proxy}
             for _ in range(MAX_REDIRECTS + 1):
+                if time.monotonic() > deadline:
+                    raise ScrapeError("The website took too long to respond", 504, "site_timeout")
                 client, request = build_request(clients, url)
                 response = client.send(request, stream=True)
                 try:
@@ -158,28 +167,28 @@ def fetch_html(url):
 
                     if response.status_code in (401, 403):
                         raise ScrapeError(
-                            "This website blocked our request (it doesn't allow scrapers or needs a login)", 422
+                            "This website blocked our request (it doesn't allow scrapers or needs a login)", 422, "site_blocked"
                         )
                     if response.status_code == 404:
-                        raise ScrapeError("That page doesn't exist (404). Check the URL.", 422)
+                        raise ScrapeError("That page doesn't exist (404). Check the URL.", 422, "page_not_found")
                     if response.status_code == 429:
-                        raise ScrapeError("The website is rate limiting us. Try again in a bit.", 422)
+                        raise ScrapeError("The website is rate limiting us. Try again in a bit.", 422, "site_rate_limited")
                     if response.status_code >= 400:
-                        raise ScrapeError(f"The website returned an error (HTTP {response.status_code})", 502)
+                        raise ScrapeError(f"The website returned an error (HTTP {response.status_code})", 502, "site_error")
                     if content_type and "html" not in content_type:
                         kind = content_type.split(";")[0]
-                        raise ScrapeError(f"That link is not a web page (it's {kind}). Only HTML pages are supported.", 415)
+                        raise ScrapeError(f"That link is not a web page (it's {kind}). Only HTML pages are supported.", 415, "not_html")
 
-                    return read_limited(response), response.charset_encoding, url
+                    return read_limited(response, deadline), response.charset_encoding, url
                 finally:
                     response.close()
     except httpx.TimeoutException:
-        raise ScrapeError("The website took too long to respond", 504) from None
+        raise ScrapeError("The website took too long to respond", 504, "site_timeout") from None
     except httpx.HTTPError as e:
         logger.debug("Request to %s failed: %r", url, e)
-        raise ScrapeError("Could not connect to the website. It may be down or blocking us.", 502) from None
+        raise ScrapeError("Could not connect to the website. It may be down or blocking us.", 502, "site_unreachable") from None
 
-    raise ScrapeError("The page redirected too many times", 502)
+    raise ScrapeError("The page redirected too many times", 502, "too_many_redirects")
 
 
 def clean(text):
@@ -228,6 +237,7 @@ def scrape_page(url):
         raise ScrapeError(
             "Couldn't find readable text on that page. It probably loads its content with JavaScript.",
             422,
+            "no_text",
         )
 
     return {

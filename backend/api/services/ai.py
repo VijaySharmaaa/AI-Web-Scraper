@@ -11,6 +11,7 @@ the next one. Providers without an API key are skipped.
 
 import logging
 import os
+import time
 
 import httpx
 
@@ -25,7 +26,10 @@ GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 DEFAULT_GEMINI_MODELS = "gemini-flash-latest,gemini-flash-lite-latest"
 DEFAULT_GROQ_MODELS = "llama-3.3-70b-versatile,llama-3.1-8b-instant"
 
-TIMEOUT = httpx.Timeout(45, connect=10)
+TIMEOUT = 45
+# total time for all models together, so the request finishes before the
+# server (gunicorn) kills it. Scraping can take up to 30s, gunicorn allows 120s.
+TOTAL_TIME_LIMIT = 75
 
 SYSTEM_PROMPT = """You summarize web pages for busy readers.
 
@@ -84,9 +88,9 @@ def check_status(response, provider):
     raise ModelFailed(f"request rejected (HTTP {code})")
 
 
-def post(url, **kwargs):
+def post(url, timeout=TIMEOUT, **kwargs):
     try:
-        return httpx.post(url, timeout=TIMEOUT, **kwargs)
+        return httpx.post(url, timeout=httpx.Timeout(timeout, connect=min(10, timeout)), **kwargs)
     except httpx.TimeoutException:
         raise ModelFailed("timed out") from None
     except httpx.HTTPError as e:
@@ -94,7 +98,7 @@ def post(url, **kwargs):
         raise ModelFailed("could not connect") from None
 
 
-def call_gemini(model, page, api_key):
+def call_gemini(model, page, api_key, timeout=TIMEOUT):
     body = {
         "system_instruction": {"parts": [{"text": SYSTEM_PROMPT}]},
         "contents": [{"role": "user", "parts": [{"text": build_prompt(page)}]}],
@@ -102,7 +106,7 @@ def call_gemini(model, page, api_key):
         # so leave plenty of room or the summary gets cut off
         "generationConfig": {"temperature": 0.3, "maxOutputTokens": 8192},
     }
-    response = post(GEMINI_URL.format(model=model), headers={"x-goog-api-key": api_key}, json=body)
+    response = post(GEMINI_URL.format(model=model), timeout=timeout, headers={"x-goog-api-key": api_key}, json=body)
     check_status(response, "Gemini")
 
     data = response.json()
@@ -121,7 +125,7 @@ def call_gemini(model, page, api_key):
     return text, finish == "MAX_TOKENS"
 
 
-def call_groq(model, page, api_key):
+def call_groq(model, page, api_key, timeout=TIMEOUT):
     body = {
         "model": model,
         "messages": [
@@ -131,7 +135,7 @@ def call_groq(model, page, api_key):
         "temperature": 0.3,
         "max_tokens": 1024,
     }
-    response = post(GROQ_URL, headers={"Authorization": f"Bearer {api_key}"}, json=body)
+    response = post(GROQ_URL, timeout=timeout, headers={"Authorization": f"Bearer {api_key}"}, json=body)
     check_status(response, "Groq")
 
     choice = (response.json().get("choices") or [{}])[0]
@@ -165,13 +169,19 @@ def summarize(page):
     chain = configured_models()
     if not chain:
         logger.error("No AI API keys are set (GEMINI_API_KEY / GROQ_API_KEY)")
-        raise AIError("The server has no AI API key set up. If you run this app, add GEMINI_API_KEY or GROQ_API_KEY to backend/.env", 503)
+        raise AIError("The server has no AI API key set up. If you run this app, add GEMINI_API_KEY or GROQ_API_KEY to backend/.env", 503, "ai_not_configured")
 
     attempts = []
+    deadline = time.monotonic() + TOTAL_TIME_LIMIT
     for provider, model, func, api_key in chain:
+        time_left = deadline - time.monotonic()
+        if time_left < 5:
+            logger.warning("Out of time, not trying %s / %s", provider, model)
+            attempts.append({"provider": provider, "model": model, "error": "skipped, out of time", "user_message": None})
+            continue
         logger.info("Trying %s / %s", provider, model)
         try:
-            text, cut_off = func(model, page, api_key)
+            text, cut_off = func(model, page, api_key, timeout=min(TIMEOUT, time_left))
         except ModelFailed as e:
             logger.warning("%s / %s failed: %s", provider, model, e.reason)
             attempts.append({"provider": provider, "model": model, "error": e.reason, "user_message": e.user_message})
@@ -191,10 +201,10 @@ def summarize(page):
     # everything failed - give the most useful message we can
     messages = {a["user_message"] for a in attempts if a["user_message"]}
     if len(messages) == 1 and all(a["user_message"] for a in attempts):
-        raise AIError(messages.pop(), 422)
+        raise AIError(messages.pop(), 422, "ai_refused")
     reasons = {a["error"] for a in attempts}
     if reasons == {"rate limited / quota used up"}:
-        raise AIError("All AI models are out of free quota right now. Wait a minute and try again.", 429)
+        raise AIError("All AI models are out of free quota right now. Wait a minute and try again.", 429, "ai_quota")
     if reasons == {"API key rejected"}:
-        raise AIError("The server's AI API keys are invalid. If you run this app, check backend/.env", 503)
-    raise AIError(f"All {len(attempts)} AI models failed to answer. Please try again in a moment.", 502)
+        raise AIError("The server's AI API keys are invalid. If you run this app, check backend/.env", 503, "ai_bad_key")
+    raise AIError(f"All {len(attempts)} AI models failed to answer. Please try again in a moment.", 502, "ai_failed")

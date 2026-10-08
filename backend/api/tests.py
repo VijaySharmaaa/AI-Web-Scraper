@@ -169,6 +169,7 @@ class FetchErrorTests(SimpleTestCase):
         with self.assertRaises(ScrapeError) as ctx:
             self.scrape_with(html_response(b"%PDF", content_type="application/pdf"))
         self.assertEqual(ctx.exception.status_code, 415)
+        self.assertEqual(ctx.exception.error_code, "not_html")
 
     def test_http_errors_have_friendly_messages(self):
         for status, words in [(403, "blocked"), (404, "doesn't exist"), (500, "HTTP 500")]:
@@ -250,6 +251,7 @@ class AIFallbackTests(SimpleTestCase):
         with self.assertRaises(AIError) as ctx:
             self.run_with([httpx.Response(429)] * 3)
         self.assertEqual(ctx.exception.status_code, 429)
+        self.assertEqual(ctx.exception.error_code, "ai_quota")
 
     def test_all_fail(self):
         with self.assertRaises(AIError) as ctx:
@@ -268,6 +270,15 @@ class AIFallbackTests(SimpleTestCase):
         with patch("api.services.ai.httpx.post", side_effect=fake_post):
             result = ai.summarize(FAKE_PAGE)
         self.assertEqual(result["failed_attempts"][0]["error"], "timed out")
+
+    def test_stops_trying_when_out_of_time(self):
+        clock = iter([0, 0, 80, 80, 80, 80])  # second model starts after the time limit
+
+        with patch("api.services.ai.time.monotonic", side_effect=lambda: next(clock)), \
+                patch("api.services.ai.httpx.post", return_value=httpx.Response(500)) as mock_post:
+            with self.assertRaises(AIError):
+                ai.summarize(FAKE_PAGE)
+        self.assertEqual(mock_post.call_count, 1)
 
     @patch.dict("os.environ", {"GROQ_API_KEY": ""})
     def test_provider_without_key_is_skipped(self):
@@ -310,6 +321,7 @@ class SummarizeApiTests(SimpleTestCase):
         res = self.post({"url": "http://127.0.0.1/"})
         self.assertEqual(res.status_code, 400)
         self.assertIn("private", res.json()["error"])
+        self.assertEqual(res.json()["code"], "private_address")
 
     def test_not_json(self):
         res = self.client.post("/api/summarize/", "url=x", content_type="application/x-www-form-urlencoded")
