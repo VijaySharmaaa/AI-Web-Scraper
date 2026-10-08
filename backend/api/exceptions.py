@@ -1,6 +1,7 @@
 import logging
 
-from rest_framework.exceptions import APIException
+from rest_framework.exceptions import APIException, Throttled
+from rest_framework.response import Response
 from rest_framework.views import exception_handler
 
 logger = logging.getLogger(__name__)
@@ -9,6 +10,7 @@ logger = logging.getLogger(__name__)
 class ScrapeError(APIException):
     status_code = 400
     default_detail = "Could not scrape that page."
+    default_code = "scrape_error"
 
     def __init__(self, detail=None, status_code=None):
         super().__init__(detail)
@@ -19,6 +21,7 @@ class ScrapeError(APIException):
 class AIError(APIException):
     status_code = 502
     default_detail = "The AI service failed to summarize the page."
+    default_code = "ai_error"
 
     def __init__(self, detail=None, status_code=None):
         super().__init__(detail)
@@ -26,24 +29,42 @@ class AIError(APIException):
             self.status_code = status_code
 
 
+def first_message(data):
+    """Pull one readable message out of DRF's error formats."""
+    if isinstance(data, dict):
+        if "detail" in data:
+            return str(data["detail"])
+        if data:
+            return first_message(next(iter(data.values())))
+    if isinstance(data, list) and data:
+        return first_message(data[0])
+    return str(data)
+
+
 def custom_exception_handler(exc, context):
-    """Return every error as {"error": "message"} so the frontend only has to check one key."""
+    """
+    Return every error as {"error": "...", "code": "..."} so the frontend
+    only has to check one shape.
+    """
     response = exception_handler(exc, context)
     if response is None:
-        # unhandled crash, DRF would turn this into an html 500 page
+        # real crash - log the traceback but don't leak details to the user
         logger.exception("Unhandled error in %s", context.get("view"))
-        return None
+        return Response(
+            {"error": "Something went wrong on our side. Please try again.", "code": "server_error"},
+            status=500,
+        )
 
-    data = response.data
-    if isinstance(data, dict) and "detail" in data:
-        message = str(data["detail"])
-    elif isinstance(data, dict):
-        # serializer validation errors look like {"url": ["Enter a valid URL."]}
-        field, errors = next(iter(data.items()))
-        message = str(errors[0]) if isinstance(errors, list) else str(errors)
+    code = getattr(exc, "default_code", "error")
+    if isinstance(exc, Throttled):
+        wait = int(exc.wait or 60)
+        message = f"You're sending requests too fast. Please wait {wait} seconds and try again."
+        response.data = {"error": message, "code": "throttled", "retry_after": wait}
     else:
-        message = str(data)
+        message = first_message(response.data)
+        if code == "invalid":
+            code = "validation_error"
+        response.data = {"error": message, "code": code}
 
     logger.warning("Request failed (%s): %s", response.status_code, message)
-    response.data = {"error": message}
     return response

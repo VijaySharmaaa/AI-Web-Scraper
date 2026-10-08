@@ -1,13 +1,13 @@
 import logging
-import os
 import time
 
+from django.http import JsonResponse
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .serializers import SummarizeRequestSerializer, SummarySerializer
-from .services.ai import summarize
+from .services.ai import configured_models, summarize
 from .services.scraper import scrape_page
 
 logger = logging.getLogger(__name__)
@@ -17,7 +17,14 @@ class HealthView(APIView):
     throttle_classes = []
 
     def get(self, request):
-        return Response({"status": "ok", "ai_key_set": bool(os.getenv("GEMINI_API_KEY"))})
+        models = configured_models()
+        return Response({
+            "status": "ok",
+            "ai_ready": bool(models),
+            # only names, never the keys
+            "providers": sorted({provider for provider, *_ in models}),
+            "models": [model for _, model, *_ in models],
+        })
 
 
 class SummarizeView(APIView):
@@ -25,6 +32,8 @@ class SummarizeView(APIView):
     POST /api/summarize/
     body: {"url": "https://example.com/article"}
     """
+
+    throttle_scope = "summarize"
 
     def post(self, request):
         serializer = SummarizeRequestSerializer(data=request.data)
@@ -35,20 +44,22 @@ class SummarizeView(APIView):
         start = time.time()
 
         page = scrape_page(url)
-        summary, model = summarize(page)
+        ai = summarize(page)
 
         took = round(time.time() - start, 2)
-        logger.info("Finished %s in %ss", url, took)
+        logger.info("Finished %s in %ss using %s / %s", url, took, ai["provider"], ai["model"])
 
-        result = SummarySerializer(
-            {
-                "title": page["title"],
-                "url": page["url"],
-                "summary": summary,
-                "model": model,
-                "char_count": page["char_count"],
-                "truncated": page["truncated"],
-                "took_seconds": took,
-            }
-        )
+        result = SummarySerializer({
+            "title": page["title"],
+            "url": page["url"],
+            "char_count": page["char_count"],
+            "word_count": page["word_count"],
+            "truncated": page["truncated"],
+            "took_seconds": took,
+            **ai,
+        })
         return Response(result.data, status=status.HTTP_200_OK)
+
+
+def api_not_found(request, *args, **kwargs):
+    return JsonResponse({"error": "API endpoint not found"}, status=404)
