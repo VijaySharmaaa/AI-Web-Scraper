@@ -116,7 +116,7 @@ export function SummaryCard({ result, onNew, fromHistory }: Props) {
             <TooltipTrigger asChild>
               <Badge variant="secondary" className="cursor-default gap-1.5" tabIndex={0}>
                 <Bot />
-                {result.provider} · {result.model}
+                {result.provider} · {result.model_label || result.model}
               </Badge>
             </TooltipTrigger>
             <TooltipContent className="text-left">

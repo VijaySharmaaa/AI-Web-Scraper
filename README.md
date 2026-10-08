@@ -46,7 +46,7 @@ tooltip, popover, select, alert dialog, spinner and the sonner toaster.
 | Frontend  | React 19 + TypeScript, Vite, Tailwind CSS v4, shadcn/ui (Radix) with its color themes, lucide icons, sonner toasts |
 | Backend   | Python, Django 5.2 + Django REST Framework |
 | Scraping  | `httpx` to download the page, `BeautifulSoup` to pull out the text |
-| AI        | Google Gemini (`gemini-flash-latest`, `gemini-flash-lite-latest`) with Groq (`llama-3.3-70b-versatile`, `llama-3.1-8b-instant`) as fallback, all free tiers |
+| AI        | Google Gemini free-tier text models (3.8 / 3.7 / 3.6 / 3.5 / 3 / 2.5 Flash and 3.5 / 3.1 / 2.5 Flash Lite) with Groq (`llama-3.3-70b-versatile`, `llama-3.1-8b-instant`) as fallback |
 | Tests     | Django test runner (backend), Vitest + Testing Library (frontend) |
 | Hosting   | Render (one web service: Django serves the API **and** the built React app) |
 

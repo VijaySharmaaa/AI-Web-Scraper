@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import os
 import threading
@@ -138,12 +139,37 @@ def call_groq(model, page, api_key, timeout):
     return text, choice.get("finish_reason") == "length"
 
 
+def model_label(model):
+    labels = cache.get("model-labels") or {}
+    if model in labels:
+        return labels[model]
+    words = model.replace("-preview", "").split("-")
+    return " ".join(w if any(c.isdigit() for c in w) and len(w) > 2 and not w[0].isdigit() else w.capitalize() for w in words)
+
+
+def remember_labels(labels):
+    known = cache.get("model-labels") or {}
+    known.update(labels)
+    cache.set("model-labels", known, settings.MODEL_CHECK_CACHE_SECONDS)
+
+
+def resolve_models(configured, available):
+    resolved = []
+    for name in configured:
+        for candidate in (name, f"{name}-preview"):
+            if candidate in available and candidate not in resolved:
+                resolved.append(candidate)
+                break
+    return resolved
+
+
 def gemini_models_for_key(api_key):
     configured = settings.GEMINI_MODELS
     if not settings.GEMINI_CHECK_MODELS:
         return configured
 
-    cache_key = f"gemini-models:{hash(api_key)}:{','.join(configured)}"
+    key_id = hashlib.sha256(api_key.encode()).hexdigest()[:16]
+    cache_key = f"gemini-models:{key_id}:{','.join(configured)}"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
@@ -158,7 +184,7 @@ def gemini_models_for_key(api_key):
         )
         response.raise_for_status()
         available = {
-            m.get("name", "").removeprefix("models/")
+            m.get("name", "").removeprefix("models/"): m.get("displayName") or ""
             for m in response.json().get("models", [])
             if "generateContent" in m.get("supportedGenerationMethods", [])
         }
@@ -166,10 +192,11 @@ def gemini_models_for_key(api_key):
         logger.warning("Could not check which Gemini models exist, using the configured list: %r", e)
         return configured
 
-    models = [m for m in configured if m in available]
-    missing = [m for m in configured if m not in available]
+    models = resolve_models(configured, available)
+    missing = [m for m in configured if m not in models and f"{m}-preview" not in models]
     if missing:
         logger.warning("Gemini models not available for this key, hiding them: %s", ", ".join(missing))
+    remember_labels({m: available[m] for m in models if available[m]})
     cache.set(cache_key, models, settings.MODEL_CHECK_CACHE_SECONDS)
     return models
 
@@ -194,7 +221,10 @@ def configured_models():
 
 
 def available_models():
-    return [{"provider": provider, "model": model} for provider, model, *_ in configured_models()]
+    return [
+        {"provider": provider, "model": model, "label": model_label(model)}
+        for provider, model, *_ in configured_models()
+    ]
 
 
 def all_failed(attempts):
@@ -250,6 +280,12 @@ def summarize(page, preferred_model=None, check_cancelled=lambda: None):
             text += "\n\n_(the summary was cut off)_"
         logger.info("Got summary from %s / %s after %d failed attempt(s)", provider, model, len(attempts))
         failed = [{k: a[k] for k in ("provider", "model", "error")} for a in attempts]
-        return {"summary": text, "provider": provider, "model": model, "failed_attempts": failed}
+        return {
+            "summary": text,
+            "provider": provider,
+            "model": model,
+            "model_label": model_label(model),
+            "failed_attempts": failed,
+        }
 
     raise all_failed(attempts)

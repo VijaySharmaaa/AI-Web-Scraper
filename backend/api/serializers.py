@@ -50,6 +50,7 @@ class SummarySerializer(serializers.Serializer):
     summary = serializers.CharField()
     provider = serializers.CharField()
     model = serializers.CharField()
+    model_label = serializers.CharField(required=False)
     failed_attempts = FailedAttemptSerializer(many=True)
     char_count = serializers.IntegerField()
     word_count = serializers.IntegerField()

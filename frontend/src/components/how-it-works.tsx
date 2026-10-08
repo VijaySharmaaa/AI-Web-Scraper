@@ -2,6 +2,7 @@ import { Bot, FileText, Link2, Sparkles } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import type { ModelOption } from "@/types";
 
 const STEPS = [
   { icon: Link2, title: "Paste a link", text: "Any article, blog post, docs or Wikipedia page." },
@@ -10,7 +11,7 @@ const STEPS = [
 ];
 
 interface Props {
-  models?: string[];
+  models?: ModelOption[];
 }
 
 export function HowItWorks({ models = [] }: Props) {
@@ -46,12 +47,12 @@ export function HowItWorks({ models = [] }: Props) {
                 Tried in this order. If one is busy, the next one answers.
               </p>
               <ol className="space-y-1">
-                {models.map((model, i) => (
-                  <li key={model} className="flex items-center gap-2 text-xs">
+                {models.map(({ model, label }, i) => (
+                  <li key={model} className="flex items-center gap-2 text-xs" title={model}>
                     <span className="flex size-5 shrink-0 items-center justify-center rounded-full border text-[10px] tabular-nums text-muted-foreground">
                       {i + 1}
                     </span>
-                    <code className="truncate font-mono">{model}</code>
+                    <span className="truncate">{label || model}</span>
                   </li>
                 ))}
               </ol>

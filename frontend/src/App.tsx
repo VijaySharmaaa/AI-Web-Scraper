@@ -282,7 +282,7 @@ export default function App() {
               onRemove={removeFromHistory}
               onClear={clearHistory}
             />
-            <HowItWorks models={health.status === "ok" ? health.data.models : []} />
+            <HowItWorks models={modelOptions} />
           </aside>
         </div>
       </main>

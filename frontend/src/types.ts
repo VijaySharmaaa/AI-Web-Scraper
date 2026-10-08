@@ -11,6 +11,7 @@ export interface SummaryResponse {
   summary: string;
   provider: string;
   model: string;
+  model_label?: string;
   failed_attempts: FailedAttempt[];
   char_count: number;
   word_count: number;
@@ -45,6 +46,7 @@ export interface ExampleLink {
 export interface ModelOption {
   provider: string;
   model: string;
+  label?: string;
 }
 
 export interface HistoryItem extends SummaryResponse {

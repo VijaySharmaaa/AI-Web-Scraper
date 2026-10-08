@@ -548,7 +548,7 @@ class GeminiModelCheckTests(SimpleTestCase):
 
     def models_response(self):
         return httpx.Response(200, json={"models": [
-            {"name": "models/gemini-a", "supportedGenerationMethods": ["generateContent"]},
+            {"name": "models/gemini-a", "displayName": "Gemini A", "supportedGenerationMethods": ["generateContent"]},
             {"name": "models/gemini-b", "supportedGenerationMethods": ["generateContent", "countTokens"]},
             {"name": "models/embedding-x", "supportedGenerationMethods": ["embedContent"]},
         ]}, request=httpx.Request("GET", "https://example.test"))
@@ -568,6 +568,12 @@ class GeminiModelCheckTests(SimpleTestCase):
         with patch("api.services.ai.send", side_effect=httpx.ConnectError("down")):
             names = [m["model"] for m in ai.available_models()]
         self.assertEqual(names, ["gemini-a", "gemini-gone", "gemini-b"])
+
+    def test_uses_googles_display_names(self):
+        with patch("api.services.ai.send", return_value=self.models_response()):
+            labels = {m["model"]: m["label"] for m in ai.available_models()}
+        self.assertEqual(labels["gemini-a"], "Gemini A")
+        self.assertEqual(labels["gemini-b"], "Gemini B")
 
     def test_keeps_configured_order(self):
         with patch("api.services.ai.send", return_value=self.models_response()):
@@ -657,3 +663,28 @@ class CancelTests(SimpleTestCase):
         for bad in ["", "short", "has spaces in it", "x" * 100, "<script>alert(1)</script>"]:
             with self.subTest(bad=bad):
                 self.assertEqual(self.cancel(bad).status_code, 400)
+
+
+class ModelNameTests(SimpleTestCase):
+    def setUp(self):
+        cache.clear()
+
+    def test_readable_labels(self):
+        self.assertEqual(ai.model_label("gemini-3.8-flash"), "Gemini 3.8 Flash")
+        self.assertEqual(ai.model_label("gemini-3.5-flash-lite"), "Gemini 3.5 Flash Lite")
+        self.assertEqual(ai.model_label("gemini-3-flash-preview"), "Gemini 3 Flash")
+        self.assertEqual(ai.model_label("llama-3.3-70b-versatile"), "Llama 3.3 70b Versatile")
+
+    def test_google_display_names_win(self):
+        ai.remember_labels({"gemini-3.8-flash": "Gemini 3.8 Flash (new)"})
+        self.assertEqual(ai.model_label("gemini-3.8-flash"), "Gemini 3.8 Flash (new)")
+
+    def test_preview_suffix_is_matched(self):
+        available = {"gemini-3.8-flash": "", "gemini-3-flash-preview": "", "gemini-2.5-flash": ""}
+        resolved = ai.resolve_models(["gemini-3.8-flash", "gemini-3-flash", "gemini-9-flash"], available)
+        self.assertEqual(resolved, ["gemini-3.8-flash", "gemini-3-flash-preview"])
+
+    def test_default_models_are_the_free_text_ones(self):
+        self.assertIn("gemini-3.8-flash", settings.GEMINI_MODELS)
+        self.assertIn("gemini-3.1-flash-lite", settings.GEMINI_MODELS)
+        self.assertFalse(any("pro" in m for m in settings.GEMINI_MODELS))

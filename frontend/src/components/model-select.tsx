@@ -23,10 +23,11 @@ interface Props {
 export function ModelSelect({ value, onChange, options, disabled }: Props) {
   const current = value === AUTO || options.some((o) => o.model === value) ? value : AUTO;
 
-  const groups = new Map<string, string[]>();
-  for (const { provider, model } of options) {
-    groups.set(provider, [...(groups.get(provider) ?? []), model]);
+  const groups = new Map<string, ModelOption[]>();
+  for (const option of options) {
+    groups.set(option.provider, [...(groups.get(option.provider) ?? []), option]);
   }
+  const labelOf = (model: string) => options.find((o) => o.model === model)?.label || model;
 
   return (
     <Select value={current} onValueChange={onChange} disabled={disabled || options.length === 0}>
@@ -37,7 +38,7 @@ export function ModelSelect({ value, onChange, options, disabled }: Props) {
       >
         <Bot className="size-4 text-muted-foreground" />
         <SelectValue>
-          {current === AUTO ? "Auto" : <span className="truncate font-mono text-xs">{current}</span>}
+          {current === AUTO ? "Auto" : <span className="truncate">{labelOf(current)}</span>}
         </SelectValue>
       </SelectTrigger>
       <SelectContent align="start">
@@ -48,9 +49,9 @@ export function ModelSelect({ value, onChange, options, disabled }: Props) {
           <SelectGroup key={provider}>
             <SelectSeparator />
             <SelectLabel>{provider}</SelectLabel>
-            {models.map((model) => (
-              <SelectItem key={model} value={model}>
-                <span className="font-mono text-xs">{model}</span>
+            {models.map((option) => (
+              <SelectItem key={option.model} value={option.model} title={option.model}>
+                {option.label || option.model}
               </SelectItem>
             ))}
           </SelectGroup>

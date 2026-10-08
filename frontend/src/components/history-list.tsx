@@ -101,7 +101,7 @@ export function HistoryList({ items, consent, onAllowSaving, activeId, onSelect,
             >
               <p className="truncate text-sm font-medium">{item.title}</p>
               <p className="truncate text-xs text-muted-foreground">
-                {hostnameOf(item.url)} · {timeAgo(item.created_at)} · {item.model}
+                {hostnameOf(item.url)} · {timeAgo(item.created_at)} · {item.model_label || item.model}
               </p>
             </button>
             <Button
