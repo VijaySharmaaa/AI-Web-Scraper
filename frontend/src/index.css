@@ -281,3 +281,23 @@ html.dark[data-color="gray"] {
 .prose-summary > :last-child {
   @apply mb-0;
 }
+
+/* "Save as PDF" through the print dialog: only the summary card is printed */
+@media print {
+  html.print-summary body * {
+    visibility: hidden;
+  }
+  html.print-summary [data-print-root],
+  html.print-summary [data-print-root] * {
+    visibility: visible;
+  }
+  html.print-summary [data-print-root] {
+    position: absolute;
+    inset: 0 0 auto 0;
+    border: 0;
+    box-shadow: none;
+  }
+  html.print-summary [data-print-hide] {
+    display: none !important;
+  }
+}

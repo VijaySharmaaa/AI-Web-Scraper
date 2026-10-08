@@ -1,15 +1,17 @@
 import { useState } from "react";
 import Markdown from "react-markdown";
 import { toast } from "sonner";
-import { Bot, Check, Clock, Copy, ExternalLink, FileText, Info, Plus, Timer } from "lucide-react";
+import { Bot, Check, Clock, Copy, Download, ExternalLink, FileText, Info, Plus, Timer } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatNumber, readingMinutes } from "@/lib/format";
+import { downloadSummaryPdf, fitsBuiltInFont, printSummary } from "@/lib/pdf";
 import { hostnameOf } from "@/lib/url";
 import type { SummaryResponse } from "@/types";
 
@@ -25,6 +27,7 @@ function toPlainText(result: SummaryResponse) {
 
 export function SummaryCard({ result, onNew, fromHistory }: Props) {
   const [copied, setCopied] = useState(false);
+  const [makingPdf, setMakingPdf] = useState(false);
   const fellBack = result.failed_attempts.length > 0;
 
   async function copy() {
@@ -39,8 +42,31 @@ export function SummaryCard({ result, onNew, fromHistory }: Props) {
     }
   }
 
+  async function downloadPdf() {
+    // the built-in pdf fonts can't draw e.g. hindi or chinese, the browser's
+    // own "Save as PDF" can, so use that for those pages
+    if (!fitsBuiltInFont(result.title + result.summary)) {
+      toast("Choose “Save as PDF” in the print window", {
+        description: "This page uses characters the quick PDF export can't draw.",
+      });
+      printSummary();
+      return;
+    }
+    setMakingPdf(true);
+    try {
+      await downloadSummaryPdf(result);
+      toast.success("PDF downloaded");
+    } catch (err) {
+      console.error("pdf failed", err);
+      toast.error("Couldn't create the PDF. Try again, or use your browser's print → Save as PDF.");
+    } finally {
+      setMakingPdf(false);
+    }
+  }
+
   return (
-    <Card className="gap-0 overflow-hidden py-0 animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
+    <Card
+      data-print-root className="gap-0 overflow-hidden py-0 animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
       <CardHeader className="gap-2 border-b bg-muted/40 py-5">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <span className="truncate">{hostnameOf(result.url)}</span>
@@ -136,10 +162,14 @@ export function SummaryCard({ result, onNew, fromHistory }: Props) {
           </span>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2" data-print-hide>
           <Button variant="outline" size="sm" onClick={copy} className="flex-1 sm:flex-none">
             {copied ? <Check /> : <Copy />}
             {copied ? "Copied" : "Copy"}
+          </Button>
+          <Button variant="outline" size="sm" onClick={downloadPdf} disabled={makingPdf} className="flex-1 sm:flex-none">
+            {makingPdf ? <Spinner aria-hidden="true" role="presentation" /> : <Download />}
+            PDF
           </Button>
           <Button size="sm" onClick={onNew} className="flex-1 sm:flex-none">
             <Plus />
