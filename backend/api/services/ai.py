@@ -165,8 +165,22 @@ def configured_models():
     return chain
 
 
-def summarize(page):
+def available_models():
+    """[{"provider": ..., "model": ...}] in the default order. Names only, never keys."""
+    return [{"provider": provider, "model": model} for provider, model, *_ in configured_models()]
+
+
+def summarize(page, preferred_model=None):
+    """
+    preferred_model: a model the user picked. It's tried first and the others
+    stay as fallbacks, so a busy model doesn't mean no summary at all.
+    """
     chain = configured_models()
+    if preferred_model:
+        chosen = [c for c in chain if c[1] == preferred_model]
+        if not chosen:
+            raise AIError(f"The model '{preferred_model}' isn't available on this server.", 400, "invalid_model")
+        chain = chosen + [c for c in chain if c[1] != preferred_model]
     if not chain:
         logger.error("No AI API keys are set (GEMINI_API_KEY / GROQ_API_KEY)")
         raise AIError("The server has no AI API key set up. If you run this app, add GEMINI_API_KEY or GROQ_API_KEY to backend/.env", 503, "ai_not_configured")

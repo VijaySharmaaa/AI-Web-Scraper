@@ -14,6 +14,15 @@ class SummarizeRequestSerializer(serializers.Serializer):
         },
     )
 
+    # optional, one of the models from /api/health/. Empty = automatic order
+    model = serializers.RegexField(
+        r"^[A-Za-z0-9._:/-]+$",
+        max_length=100,
+        required=False,
+        allow_blank=True,
+        error_messages={"invalid": "That model name isn't valid."},
+    )
+
     def to_internal_value(self, data):
         # let people paste "example.com" without the https://
         url = data.get("url") if hasattr(data, "get") else None
@@ -21,7 +30,7 @@ class SummarizeRequestSerializer(serializers.Serializer):
             url = url.strip()
             if url and "://" not in url:
                 url = "https://" + url
-            data = {"url": url}
+            data = {"url": url, **({"model": data["model"]} if "model" in data else {})}
         return super().to_internal_value(data)
 
 
@@ -33,6 +42,7 @@ class FailedAttemptSerializer(serializers.Serializer):
 
 class SummarySerializer(serializers.Serializer):
     title = serializers.CharField()
+    requested_model = serializers.CharField(allow_null=True)
     url = serializers.URLField()
     summary = serializers.CharField()
     provider = serializers.CharField()

@@ -6,6 +6,8 @@ export interface FailedAttempt {
 
 export interface SummaryResponse {
   title: string;
+  /** the model the user picked, null for automatic (older history items don't have it) */
+  requested_model?: string | null;
   url: string;
   summary: string;
   provider: string;
@@ -22,6 +24,12 @@ export interface HealthResponse {
   ai_ready: boolean;
   providers: string[];
   models: string[];
+  model_options?: ModelOption[];
+}
+
+export interface ModelOption {
+  provider: string;
+  model: string;
 }
 
 export interface HistoryItem extends SummaryResponse {

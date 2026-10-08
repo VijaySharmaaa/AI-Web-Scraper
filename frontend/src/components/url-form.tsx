@@ -2,11 +2,13 @@ import { useState, type FormEvent, type RefObject } from "react";
 import { ClipboardPaste, Link2, Sparkles, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { ModelSelect } from "@/components/model-select";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { checkUrl } from "@/lib/url";
 import { cn } from "@/lib/utils";
+import type { ModelOption } from "@/types";
 
 const EXAMPLES = [
   { label: "Wikipedia: Web scraping", url: "https://en.wikipedia.org/wiki/Web_scraping" },
@@ -23,9 +25,23 @@ interface Props {
   blockedReason?: string;
   inputRef: RefObject<HTMLInputElement | null>;
   showExamples: boolean;
+  model: string;
+  onModelChange: (model: string) => void;
+  modelOptions: ModelOption[];
 }
 
-export function UrlForm({ value, onChange, onSubmit, loading, blockedReason, inputRef, showExamples }: Props) {
+export function UrlForm({
+  value,
+  onChange,
+  onSubmit,
+  loading,
+  blockedReason,
+  inputRef,
+  showExamples,
+  model,
+  onModelChange,
+  modelOptions,
+}: Props) {
   // only nag about the url after the user tried to submit it
   const [touched, setTouched] = useState(false);
   const check = checkUrl(value);
@@ -120,6 +136,10 @@ export function UrlForm({ value, onChange, onSubmit, loading, blockedReason, inp
           {loading ? "Summarizing…" : "Summarize"}
         </Button>
       </div>
+
+      {modelOptions.length > 0 && (
+        <ModelSelect value={model} onChange={onModelChange} options={modelOptions} disabled={loading} />
+      )}
 
       <p
         id={showError ? "url-error" : "url-help"}

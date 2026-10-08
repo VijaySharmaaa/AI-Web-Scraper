@@ -68,6 +68,13 @@ const BY_CODE: Record<string, Preset> = {
     editUrl: true,
     hint: "This page builds its content with JavaScript, which this app doesn't run. Articles, blogs, docs and Wikipedia work best.",
   },
+  invalid_model: {
+    title: "That AI model isn't available",
+    tone: "warning",
+    retryable: false,
+    editUrl: false,
+    hint: "The server's model list changed. Pick another model or use Auto.",
+  },
   ai_quota: {
     title: "The AI is busy",
     tone: "warning",

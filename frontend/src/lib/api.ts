@@ -78,8 +78,10 @@ async function request<T>(path: string, init: RequestInit = {}, signal?: AbortSi
   return data as T;
 }
 
-export function summarizeUrl(url: string, signal?: AbortSignal) {
-  return request<SummaryResponse>("/api/summarize/", { method: "POST", body: JSON.stringify({ url }) }, signal);
+/** model: one of the server's models, or undefined to let the server pick (auto) */
+export function summarizeUrl(url: string, signal?: AbortSignal, model?: string) {
+  const body = model ? { url, model } : { url };
+  return request<SummaryResponse>("/api/summarize/", { method: "POST", body: JSON.stringify(body) }, signal);
 }
 
 export function getHealth(signal?: AbortSignal) {

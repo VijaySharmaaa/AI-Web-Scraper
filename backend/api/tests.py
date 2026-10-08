@@ -280,6 +280,37 @@ class AIFallbackTests(SimpleTestCase):
                 ai.summarize(FAKE_PAGE)
         self.assertEqual(mock_post.call_count, 1)
 
+    def test_preferred_model_goes_first(self):
+        calls = []
+
+        def fake_post(url, **kwargs):
+            calls.append(kwargs.get("json", {}).get("model") or url.split("/models/")[1].split(":")[0])
+            return groq_ok()
+
+        with patch("api.services.ai.httpx.post", side_effect=fake_post):
+            result = ai.summarize(FAKE_PAGE, preferred_model="llama-a")
+        self.assertEqual(calls, ["llama-a"])
+        self.assertEqual(result["model"], "llama-a")
+
+    def test_preferred_model_still_falls_back(self):
+        responses = [httpx.Response(429), gemini_ok()]
+        calls = []
+
+        def fake_post(url, **kwargs):
+            calls.append(kwargs.get("json", {}).get("model") or url.split("/models/")[1].split(":")[0])
+            return responses[len(calls) - 1]
+
+        with patch("api.services.ai.httpx.post", side_effect=fake_post):
+            result = ai.summarize(FAKE_PAGE, preferred_model="gem-b")
+        self.assertEqual(calls, ["gem-b", "gem-a"])
+        self.assertEqual(result["model"], "gem-a")
+        self.assertEqual(result["failed_attempts"][0]["model"], "gem-b")
+
+    def test_unknown_preferred_model(self):
+        with self.assertRaises(AIError) as ctx:
+            ai.summarize(FAKE_PAGE, preferred_model="gpt-5")
+        self.assertEqual(ctx.exception.error_code, "invalid_model")
+
     @patch.dict("os.environ", {"GROQ_API_KEY": ""})
     def test_provider_without_key_is_skipped(self):
         models = [m for _, m, *_ in ai.configured_models()]
@@ -369,12 +400,42 @@ class SummarizeApiTests(SimpleTestCase):
         self.assertEqual(res.json()["code"], "throttled")
         self.assertIn("retry_after", res.json())
 
+    @patch.dict("os.environ", {"GEMINI_API_KEY": "k", "GROQ_API_KEY": "", "GEMINI_MODELS": "gem-a,gem-b"})
+    @patch("api.views.summarize", return_value=AI_RESULT)
+    @patch("api.views.scrape_page", return_value=FAKE_PAGE)
+    def test_chosen_model_is_passed_on(self, mock_scrape, mock_ai):
+        res = self.post({"url": "https://example.com", "model": "gem-b"})
+        self.assertEqual(res.status_code, 200)
+        mock_ai.assert_called_once_with(FAKE_PAGE, preferred_model="gem-b")
+        self.assertEqual(res.json()["requested_model"], "gem-b")
+
+    @patch.dict("os.environ", {"GEMINI_API_KEY": "k", "GROQ_API_KEY": "", "GEMINI_MODELS": "gem-a"})
+    @patch("api.views.scrape_page", return_value=FAKE_PAGE)
+    def test_unknown_model_is_rejected_before_scraping(self, mock_scrape):
+        res = self.post({"url": "https://example.com", "model": "gpt-5"})
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.json()["code"], "invalid_model")
+        mock_scrape.assert_not_called()
+
+    def test_model_name_with_bad_characters(self):
+        res = self.post({"url": "https://example.com", "model": "gem a; rm -rf"})
+        self.assertEqual(res.status_code, 400)
+
+    @patch("api.views.summarize", return_value=AI_RESULT)
+    @patch("api.views.scrape_page", return_value=FAKE_PAGE)
+    def test_empty_model_means_auto(self, mock_scrape, mock_ai):
+        res = self.post({"url": "https://example.com", "model": ""})
+        self.assertEqual(res.status_code, 200)
+        mock_ai.assert_called_once_with(FAKE_PAGE, preferred_model=None)
+        self.assertIsNone(res.json()["requested_model"])
+
     def test_health(self):
         with patch.dict("os.environ", {"GEMINI_API_KEY": "secret-key-value", "GROQ_API_KEY": ""}):
             res = self.client.get("/api/health/")
         data = res.json()
         self.assertTrue(data["ai_ready"])
         self.assertEqual(data["providers"], ["Google Gemini"])
+        self.assertEqual(data["model_options"][0]["provider"], "Google Gemini")
         self.assertNotIn("secret-key-value", res.content.decode())
 
     def test_security_headers(self):

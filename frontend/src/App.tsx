@@ -13,6 +13,7 @@ import { useOnline } from "@/hooks/use-online";
 import { ApiError, getHealth, summarizeUrl } from "@/lib/api";
 import { describeError, type ErrorInfo } from "@/lib/errors";
 import { loadConsent, saveConsent, type Consent } from "@/lib/consent";
+import { AUTO, loadModelChoice, saveModelChoice } from "@/lib/model-choice";
 import { addToHistory, clearSavedHistory, createHistoryItem, loadHistory, saveHistory } from "@/lib/history";
 import type { HistoryItem, SummaryResponse } from "@/types";
 
@@ -32,11 +33,25 @@ export default function App() {
   // only read saved history if the visitor allowed saving it
   const [history, setHistory] = useState<HistoryItem[]>(() => (loadConsent() === "granted" ? loadHistory() : []));
   const [health, setHealth] = useState<HealthState>({ status: "checking" });
+  const [model, setModel] = useState(loadModelChoice);
   const online = useOnline();
 
   const inputRef = useRef<HTMLInputElement>(null);
   const resultRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  const modelOptions = health.status === "ok" ? health.data.model_options ?? [] : [];
+
+  function changeModel(next: string) {
+    setModel(next);
+    saveModelChoice(next);
+  }
+
+  // a saved model the server doesn't offer anymore goes back to auto
+  useEffect(() => {
+    if (health.status !== "ok" || model === AUTO) return;
+    if (!modelOptions.some((m) => m.model === model)) changeModel(AUTO);
+  }, [health]);
 
   const checkHealth = useCallback(async () => {
     setHealth({ status: "checking" });
@@ -120,15 +135,16 @@ export default function App() {
     scrollToResult();
 
     try {
-      const result = await summarizeUrl(url, controller.signal);
+      const result = await summarizeUrl(url, controller.signal, model === AUTO ? undefined : model);
       // functional update, the history may have changed while we were waiting
       const item = createHistoryItem(result);
       setHistory((items) => addToHistory(items, item));
       setView({ status: "success", result, historyId: item.id, fromHistory: false });
       if (health.status === "down") checkHealth();
       if (result.failed_attempts.length > 0) {
+        const first = result.requested_model ?? "The first choice AI model";
         toast.info(`Answered by ${result.provider} (${result.model})`, {
-          description: "The first choice AI model was unavailable, so a fallback model was used.",
+          description: `${first} was unavailable, so a fallback model was used.`,
         });
       }
       scrollToResult();
@@ -217,6 +233,9 @@ export default function App() {
               blockedReason={blockedReason}
               inputRef={inputRef}
               showExamples={view.status === "idle" && history.length === 0}
+              model={model}
+              onModelChange={changeModel}
+              modelOptions={modelOptions}
             />
 
             {/* screen readers hear when the result is ready */}

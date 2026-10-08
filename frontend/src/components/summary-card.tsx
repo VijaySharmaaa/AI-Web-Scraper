@@ -101,15 +101,19 @@ export function SummaryCard({ result, onNew, fromHistory }: Props) {
             <TooltipContent className="text-left">
               {fellBack ? (
                 <div className="space-y-1">
-                  <p className="font-medium">Answered by a fallback model</p>
+                  <p className="font-medium">
+                    {result.requested_model ? `You picked ${result.requested_model}, it was unavailable` : "Answered by a fallback model"}
+                  </p>
                   {result.failed_attempts.map((a) => (
                     <p key={`${a.provider}-${a.model}`}>
                       {a.provider} · {a.model}: {a.error}
                     </p>
                   ))}
                 </div>
+              ) : result.requested_model ? (
+                "The model you picked wrote this summary"
               ) : (
-                "AI model that wrote this summary"
+                "AI model that wrote this summary (picked automatically)"
               )}
             </TooltipContent>
           </Tooltip>
