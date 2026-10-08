@@ -9,7 +9,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { checkUrl } from "@/lib/url";
 import { cn } from "@/lib/utils";
-import type { ExampleLink, ModelOption, Usage } from "@/types";
+import type { ExampleLink, ModelOption, UnavailableModel, Usage } from "@/types";
 
 interface Props {
   value: string;
@@ -22,7 +22,7 @@ interface Props {
   model: string;
   onModelChange: (model: string) => void;
   modelOptions: ModelOption[];
-  hiddenModels?: string[];
+  unavailableModels?: UnavailableModel[];
   examples: ExampleLink[];
   maxUrlLength?: number;
   usage?: Usage | null;
@@ -39,7 +39,7 @@ export function UrlForm({
   model,
   onModelChange,
   modelOptions,
-  hiddenModels,
+  unavailableModels,
   examples,
   maxUrlLength,
   usage,
@@ -153,7 +153,7 @@ export function UrlForm({
                 value={model}
                 onChange={onModelChange}
                 options={modelOptions}
-                hidden={hiddenModels}
+                unavailable={unavailableModels}
                 disabled={loading}
               />
             )}

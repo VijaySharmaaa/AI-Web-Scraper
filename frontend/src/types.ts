@@ -27,6 +27,7 @@ export interface HealthResponse {
   models: string[];
   model_options?: ModelOption[];
   hidden_models?: string[];
+  unavailable_models?: UnavailableModel[];
   usage?: Usage | null;
   limits?: { max_url_length: number; summaries_per_day: number | null };
   examples?: ExampleLink[];
@@ -48,6 +49,10 @@ export interface ModelOption {
   provider: string;
   model: string;
   label?: string;
+}
+
+export interface UnavailableModel extends ModelOption {
+  reason: string;
 }
 
 export interface HistoryItem extends SummaryResponse {

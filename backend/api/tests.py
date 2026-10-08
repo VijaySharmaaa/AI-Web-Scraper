@@ -573,6 +573,18 @@ class GeminiModelCheckTests(SimpleTestCase):
         with patch("api.services.ai.send", return_value=self.models_response()):
             data = APIClient().get("/api/health/").json()
         self.assertEqual(data["hidden_models"], ["gemini-gone"])
+        self.assertIn(
+            {"provider": "Google Gemini", "model": "gemini-gone", "label": "Gemini Gone", "reason": "not available for this API key"},
+            data["unavailable_models"],
+        )
+
+    @override_settings(GROQ_MODELS=["llama-x"])
+    def test_providers_without_a_key_are_listed_as_unavailable(self):
+        with patch("api.services.ai.send", return_value=self.models_response()):
+            data = APIClient().get("/api/health/").json()
+        groq = [m for m in data["unavailable_models"] if m["provider"] == "Groq"]
+        self.assertEqual(groq, [{"provider": "Groq", "model": "llama-x", "label": "Llama X", "reason": "not set up on this server"}])
+        self.assertNotIn("llama-x", [m["model"] for m in data["model_options"]])
 
     def test_uses_googles_display_names(self):
         with patch("api.services.ai.send", return_value=self.models_response()):

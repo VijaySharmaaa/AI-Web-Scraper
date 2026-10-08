@@ -1,4 +1,4 @@
-import { Bot } from "lucide-react";
+import { Bot, Lock } from "lucide-react";
 
 import {
   Select,
@@ -11,23 +11,26 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { AUTO } from "@/lib/model-choice";
-import type { ModelOption } from "@/types";
+import type { ModelOption, UnavailableModel } from "@/types";
 
 interface Props {
   value: string;
   onChange: (model: string) => void;
   options: ModelOption[];
-  hidden?: string[];
+  unavailable?: UnavailableModel[];
   disabled?: boolean;
 }
 
-export function ModelSelect({ value, onChange, options, hidden = [], disabled }: Props) {
+export function ModelSelect({ value, onChange, options, unavailable = [], disabled }: Props) {
   const current = value === AUTO || options.some((o) => o.model === value) ? value : AUTO;
 
-  const groups = new Map<string, ModelOption[]>();
-  for (const option of options) {
-    groups.set(option.provider, [...(groups.get(option.provider) ?? []), option]);
-  }
+  const groups = new Map<string, { usable: ModelOption[]; locked: UnavailableModel[] }>();
+  const groupFor = (provider: string) => {
+    if (!groups.has(provider)) groups.set(provider, { usable: [], locked: [] });
+    return groups.get(provider)!;
+  };
+  for (const option of options) groupFor(option.provider).usable.push(option);
+  for (const option of unavailable) groupFor(option.provider).locked.push(option);
   const labelOf = (model: string) => options.find((o) => o.model === model)?.label || model;
 
   return (
@@ -46,25 +49,29 @@ export function ModelSelect({ value, onChange, options, hidden = [], disabled }:
         <SelectItem value={AUTO}>
           Auto <span className="text-muted-foreground">· best available</span>
         </SelectItem>
-        {[...groups.entries()].map(([provider, models]) => (
+        {[...groups.entries()].map(([provider, { usable, locked }]) => (
           <SelectGroup key={provider}>
             <SelectSeparator />
             <SelectLabel>{provider}</SelectLabel>
-            {models.map((option) => (
+            {usable.map((option) => (
               <SelectItem key={option.model} value={option.model} title={option.model}>
                 {option.label || option.model}
               </SelectItem>
             ))}
+            {locked.map((option) => (
+              <SelectItem
+                key={option.model}
+                value={`unavailable:${option.model}`}
+                disabled
+                title={`${option.model}: ${option.reason}`}
+              >
+                <Lock className="size-3.5" />
+                {option.label || option.model}
+                <span className="text-xs text-muted-foreground">· {option.reason}</span>
+              </SelectItem>
+            ))}
           </SelectGroup>
         ))}
-        {hidden.length > 0 && (
-          <>
-            <SelectSeparator />
-            <p className="max-w-64 px-2 py-1.5 text-xs text-muted-foreground">
-              Not available for this API key: {hidden.join(", ")}
-            </p>
-          </>
-        )}
       </SelectContent>
     </Select>
   );

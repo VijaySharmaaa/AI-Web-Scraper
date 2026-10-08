@@ -265,6 +265,21 @@ def available_models():
     ]
 
 
+def unavailable_models():
+    items = []
+    for name, key_var, models, func in providers():
+        if not os.getenv(key_var, "").strip():
+            reason = "not set up on this server"
+            missing = models
+        elif func is call_gemini:
+            reason = "not available for this API key"
+            missing = [m for m in models if m in hidden_models()]
+        else:
+            continue
+        items += [{"provider": name, "model": m, "label": model_label(m), "reason": reason} for m in missing]
+    return items
+
+
 def all_failed(attempts):
     messages = {a["user_message"] for a in attempts if a["user_message"]}
     if len(messages) == 1 and all(a["user_message"] for a in attempts):

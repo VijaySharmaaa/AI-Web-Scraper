@@ -101,15 +101,28 @@ describe("model picker", () => {
     expect(screen.getByText("Groq")).toBeInTheDocument();
   });
 
-  it("tells the user which models the server hid", async () => {
+  it("lists models that can't be used, greyed out with the reason", async () => {
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
-      const body = String(input).includes("health") ? { ...HEALTH, hidden_models: ["gemini-3.6-flash"] } : RESULT;
+      const body = String(input).includes("health")
+        ? {
+            ...HEALTH,
+            unavailable_models: [
+              { provider: "Google Gemini", model: "gemini-3.6-flash", label: "Gemini 3.6 Flash", reason: "not available for this API key" },
+              { provider: "Groq", model: "llama-3.1-8b-instant", label: "Llama 3.1 8b Instant", reason: "not set up on this server" },
+            ],
+          }
+        : RESULT;
       return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
     });
     const user = userEvent.setup();
     renderApp();
     await user.click(await screen.findByRole("combobox", { name: "AI model" }));
-    expect(await screen.findByText(/Not available for this API key: gemini-3.6-flash/)).toBeInTheDocument();
+
+    const locked = await screen.findByRole("option", { name: /Gemini 3.6 Flash/ });
+    expect(locked).toHaveAttribute("aria-disabled", "true");
+    expect(locked).toHaveTextContent("not available for this API key");
+    expect(screen.getByRole("option", { name: /Llama 3.1 8b Instant/ })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("option", { name: "llama-3.3-70b-versatile" })).not.toHaveAttribute("aria-disabled");
   });
 
   it("goes back to Auto when a saved model isn't offered anymore", async () => {
